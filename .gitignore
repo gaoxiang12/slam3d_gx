@@ -1,0 +1,6 @@
+build*
+lib
+log*
+debug*
+g2o*
+*.g2o
