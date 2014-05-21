@@ -54,6 +54,10 @@ ParameterReader::ParameterReader(const string& para_file )
     config[ "fabmap" ] >> _fabmap;
     config[ "error_threshold" ] >> _error_threshold;
     config[ "grid_leaf" ] >> _grid_size;
+
+    config[ "distance_threshold" ] >> _distance_threshold;
+    config[ "plane_percent" ] >> _plane_percent;
+    config[ "min_error_plane" ] >> _min_error_plane;
 }
 
 string ParameterReader::GetPara( const string& para_name )
@@ -98,6 +102,12 @@ string ParameterReader::GetPara( const string& para_name )
         return num2string(_error_threshold);
     if (para_name == string("grid_leaf"))
         return num2string(_grid_size);
+    if (para_name == string("distance_threshold") )
+        return num2string(_distance_threshold);
+    if (para_name == string("plane_percent"))
+        return num2string(_plane_percent);
+    if (para_name == string("min_error_plane") )
+        return num2string(_min_error_plane );
     cerr<<"Unknown parameter: "<<para_name<<endl;
     return string("unknown_para_name");
 }

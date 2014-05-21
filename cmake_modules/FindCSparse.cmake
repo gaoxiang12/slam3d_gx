@@ -10,6 +10,7 @@ FIND_PATH(CSPARSE_INCLUDE_DIR NAMES cs.h
   /opt/local/include/ufsparse
   /usr/local/include/ufsparse
   /sw/include/ufsparse
+  /usr/local/include/EXTERNAL/csparse
   )
 
 FIND_LIBRARY(CSPARSE_LIBRARY NAMES cxsparse

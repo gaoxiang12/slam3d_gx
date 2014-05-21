@@ -23,14 +23,14 @@ class ParameterReader
     {
         ss.clear();
         ss<<d;
-        return s.str();
+        return ss.str();
     }
 
     string num2string(int d)
     {
         ss.clear();
         ss<<d;
-        return s.str();
+        return ss.str();
     }
     
  protected:
@@ -68,6 +68,10 @@ class ParameterReader
     //FAB-MAP
     string _fabmap;          //是否使用fab-map2.0
 
+    //3D SLAM
+    double _distance_threshold; //提取平面时的距离阈值
+    double _plane_percent;  //平面点的百分比
+    double _min_error_plane; //归类图像点时的误差阈值
 };
 
 //全局变量指针
