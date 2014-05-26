@@ -1,5 +1,3 @@
-MESSAGE(STATUS "Configuring Graphic end..."})
-MESSAGE(STATUS "CSparse is in :" ${CSPARSE_LIBS} )
 FIND_PACKAGE( OpenCV REQUIRED )
 find_package(PCL 1.7 REQUIRED)
 
@@ -9,12 +7,14 @@ LINK_LIBRARIES(${PCL_LIBRARY_DIRS})
 # Build Library
 # Graphic end
 
-ADD_LIBRARY(graphicend
+ADD_LIBRARY(SLAM3d
   GraphicEnd.cpp ParameterReader.cpp
 )
-TARGET_LINK_LIBRARIES( graphicend
-  ${OpenCV_LIBS} yaml-cpp g2o_core ${MOOS_LIBS} pthread ${PCL_LIBRARIES})
+TARGET_LINK_LIBRARIES( SLAM3d
+  ${OpenCV_LIBS} g2o_core pthread ${PCL_LIBRARIES} g2o_types_slam3d g2o_solver_csparse g2o_stuff g2o_csparse_extension ${CSPARSE_LIBRARY} yaml-cpp
+  )
 
-# SLAM back end
+ADD_EXECUTABLE( run_SLAM run_SLAM.cpp )
+TARGET_LINK_LIBRARIES( run_SLAM SLAM3d )
 
 # Build test executable

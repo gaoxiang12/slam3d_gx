@@ -21,6 +21,7 @@ class ParameterReader
  protected:
     string num2string(double d)
     {
+        ss.str("");
         ss.clear();
         ss<<d;
         return ss.str();
@@ -28,6 +29,7 @@ class ParameterReader
 
     string num2string(int d)
     {
+        ss.str("");
         ss.clear();
         ss<<d;
         return ss.str();

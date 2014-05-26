@@ -27,8 +27,8 @@ const int max_landmark_per_loop = 100; //每回合增加到库中的路标上限
 
 //////////////////////////////////////////
 // Camera matrix
-const double camera_fx = 520.9, camera_fy = 521.0,
-    camera_cx = 325.1, camera_cy = 249.7, camera_factor = 5000.0;
+const double camera_fx = 517, camera_fy = 517.0,
+    camera_cx = 318.6, camera_cy = 255.3, camera_factor = 5000.0;
 
 const double camera_matrix[3][3] = { { camera_fx, 0, camera_cx }, { 0, camera_fy ,camera_cy }, { 0, 0, 1 }};
 
@@ -110,3 +110,22 @@ class GRAPHIC_END_NEED_GLOBAL_OPTIMIZATION : public EXCEPTION
         
     }
 };
+
+//the following are UBUNTU/LINUX ONLY terminal color codes.
+#define RESET "\033[0m"
+#define BLACK "\033[30m" /* Black */
+#define RED "\033[31m" /* Red */
+#define GREEN "\033[32m" /* Green */
+#define YELLOW "\033[33m" /* Yellow */
+#define BLUE "\033[34m" /* Blue */
+#define MAGENTA "\033[35m" /* Magenta */
+#define CYAN "\033[36m" /* Cyan */
+#define WHITE "\033[37m" /* White */
+#define BOLDBLACK "\033[1m\033[30m" /* Bold Black */
+#define BOLDRED "\033[1m\033[31m" /* Bold Red */
+#define BOLDGREEN "\033[1m\033[32m" /* Bold Green */
+#define BOLDYELLOW "\033[1m\033[33m" /* Bold Yellow */
+#define BOLDBLUE "\033[1m\033[34m" /* Bold Blue */
+#define BOLDMAGENTA "\033[1m\033[35m" /* Bold Magenta */
+#define BOLDCYAN "\033[1m\033[36m" /* Bold Cyan */
+#define BOLDWHITE "\033[1m\033[37m" /* Bold White */

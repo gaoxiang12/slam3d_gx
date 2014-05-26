@@ -3,7 +3,7 @@
 #  图像选项
 #########################################
 # 数据库根目录位置：该目录下应该有rgb_index/和dep_index/两个文件夹，记录了rgb图与深度度
-data_source: /home/y/code/dataset/slam
+data_source: /home/y/code/dataset/fr1_xyz
 # 图像特征的检测算子与描述算子的名称
 detector_name: SIFT
 descriptor_name: SIFT
@@ -52,3 +52,14 @@ online_pcl: yes
 grid_leaf: 0.002
 # 是否使用FAB-MAP 2.0
 fabmap: no
+
+#########################################
+#  3D SLAM 选项
+#########################################
+# 提取平面时的距离阈值 （越大表示平面的精度越粗糙）
+distance_threshold: 0.05 
+# 平面点的百分比
+plane_percent: 0.3
+# 归类图像点时的误差阈值（较大时会把离平面较远的点也算在平面上）
+min_error_plane: 0.5
+

@@ -1,4 +1,4 @@
-# Xiang GAO, 2014.2
+# Xiang GAO, 2014.5
 
 # Version required
 CMAKE_MINIMUM_REQUIRED( VERSION 2.8 )
