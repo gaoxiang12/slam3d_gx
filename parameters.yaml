@@ -5,7 +5,7 @@
 # 数据库根目录位置：该目录下应该有rgb_index/和dep_index/两个文件夹，记录了rgb图与深度度
 data_source: /home/y/code/dataset/fr1_xyz
 # 图像特征的检测算子与描述算子的名称
-detector_name: SIFT
+detector_name: STAR
 descriptor_name: SIFT
 # 数据的起始编号与结束编号
 start_index: 1
@@ -62,4 +62,5 @@ distance_threshold: 0.05
 plane_percent: 0.3
 # 归类图像点时的误差阈值（较大时会把离平面较远的点也算在平面上）
 min_error_plane: 0.01
-
+# 最大平面数量
+max_planes: 4

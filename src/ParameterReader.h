@@ -74,6 +74,7 @@ class ParameterReader
     double _distance_threshold; //提取平面时的距离阈值
     double _plane_percent;  //平面点的百分比
     double _min_error_plane; //归类图像点时的误差阈值
+    int _max_planes; //最大平面数量
 };
 
 //全局变量指针

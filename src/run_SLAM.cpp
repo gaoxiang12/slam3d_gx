@@ -33,7 +33,7 @@ int main( int argc, char** argv )
     }
 
     cout<<"Total KeyFrame: "<<pGraphicEnd->_keyframes.size()<<endl;
-    
+    pSLAMEnd->globalOptimizer.save( "./data/final.g2o" );
     delete pGraphicEnd;
     delete pSLAMEnd;
 

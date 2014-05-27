@@ -58,6 +58,7 @@ ParameterReader::ParameterReader(const string& para_file )
     config[ "distance_threshold" ] >> _distance_threshold;
     config[ "plane_percent" ] >> _plane_percent;
     config[ "min_error_plane" ] >> _min_error_plane;
+    config["max_planes"] >> _max_planes;
 }
 
 string ParameterReader::GetPara( const string& para_name )
@@ -108,6 +109,8 @@ string ParameterReader::GetPara( const string& para_name )
         return num2string(_plane_percent);
     if (para_name == string("min_error_plane") )
         return num2string(_min_error_plane );
+    if (para_name == string("max_planes"))
+        return num2string( _max_planes );
     cerr<<"Unknown parameter: "<<para_name<<endl;
     return string("unknown_para_name");
 }

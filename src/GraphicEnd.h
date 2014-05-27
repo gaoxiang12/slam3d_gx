@@ -49,6 +49,7 @@ struct PLANE
 struct KEYFRAME //关键帧: 一个关键帧由它上面的若干个平面组成
 {
     int id;
+    int frame_index;
     vector<PLANE> planes;
 };
 
@@ -68,7 +69,8 @@ class GraphicEnd
     int readimage();
     int process();
 
-    void generateKeyFrame();    //将当前帧作为一个新的关键帧
+    //将present作为一个新的关键帧，传入current到present的变换矩阵
+    void generateKeyFrame( Eigen::Isometry3d T );    
     //internal
 
     vector<PLANE> extractPlanes( PointCloud::Ptr cloud ); //从点云提取一组平面
@@ -101,7 +103,7 @@ class GraphicEnd
     vector<DMatch> match(Mat desp1, Mat desp2);
 
     //求解两个平面间的PnP问题
-    Eigen::Isometry3d pnp( PLANE& p1, PLANE& p2 ); 
+    vector<DMatch> pnp( PLANE& p1, PLANE& p2 ); 
 
     //求解两组平面间的多PnP问题，算法将调用SLAM端构造局部子图
     Eigen::Isometry3d multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2);
@@ -111,6 +113,8 @@ class GraphicEnd
     SLAMEnd* _pSLAMEnd;
     
     Eigen::Isometry3d _robot;                  //机器人的位姿，含旋转矩阵与位移向量
+    Eigen::Isometry3d _kf_pos;                //机器人在关键帧上的位姿
+    
     vector<KEYFRAME> _keyframes;      //过去的关键帧
     KEYFRAME _currKF;                              //当前的关键帧
     KEYFRAME _present;                            //当前帧，也就是正在处理的那一帧
@@ -131,6 +135,7 @@ class GraphicEnd
     double _match_min_dist;
     double _percent;
     double _max_pos_change;
+    int _max_planes;
     stringstream ss;
 };
 
@@ -160,8 +165,8 @@ class SLAMEnd
         SlamBlockSolver* blockSolver = new SlamBlockSolver( linearSolver );
         solver = new OptimizationAlgorithmGaussNewton( blockSolver );
         _robustKernel = RobustKernelFactory::instance()->construct( "Cauchy" );
+        globalOptimizer.setVerbose( false );
         globalOptimizer.setAlgorithm( solver );
-        
         setupLocalOptimizer();
     }
 

@@ -74,10 +74,14 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
     _match_min_dist = atof( g_pParaReader->GetPara("match_min_dist").c_str() );
     _percent = atof( g_pParaReader->GetPara("plane_percent").c_str() );
     _max_pos_change = atof( g_pParaReader->GetPara("max_pos_change").c_str());
+    _max_planes = atoi( g_pParaReader->GetPara("max_planes").c_str() );
+    _robot = _kf_pos = Eigen::Isometry3d::Identity();
     
     //读取首帧图像并处理
-    readimage();  
+    readimage();
+    _lastRGB = _currRGB.clone();
     _currKF.id = 0;
+    _currKF.frame_index = _index;
     _currKF.planes = extractPlanes( _currCloud ); //抓平面
     for ( size_t i=0; i<_currKF.planes.size(); i++ )
     {
@@ -86,6 +90,14 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
         _currKF.planes[i].desp = extractDescriptor( _currRGB, _currKF.planes[i].kp );
         compute3dPosition( _currKF.planes[i], _currDep );
     }
+
+    //将current存储至全局优化器
+    SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
+    VertexSE3* v = new VertexSE3();
+    v->setId( _currKF.id );
+    v->setEstimate( _robot );
+    v->setFixed( true );
+    opt.addVertex( v );
     _index ++;
 
     cout<<"********************"<<endl;
@@ -110,16 +122,33 @@ int GraphicEnd::run()
 
     // 求解present到current的变换矩阵
     Eigen::Isometry3d T = multiPnP( _currKF.planes, _present.planes );
+    T = T.inverse();  //好像是反着的
+    
     // 如果平移和旋转超过一个阈值，则定义新的关键帧
     Eigen::Vector3d rpy = T.rotation().eulerAngles(0, 1, 2);
     Eigen::Vector3d trans = T.translation();
     double norm = rpy.norm() + trans.norm();
     cout<<RED<<"norm of T = "<<norm<<RESET<<endl;
-    if (norm > _max_pos_change)
+    if (norm > 1.0)
+    {
+        cerr<<"an error occured."<<endl;
+        //waitKey(0);
+    }
+    else if (norm > _max_pos_change)
     {
         //生成一个新的关键帧
-        generateKeyFrame();
+        _robot = T * _kf_pos;
+        generateKeyFrame(T);
+        
     }
+    else
+    {
+        //小变化，更新robot位置
+        _robot = T * _kf_pos;
+    }
+
+    cout<<YELLOW<<"robot: "<<endl;
+    cout<<_robot.matrix()<<endl<<RESET;
 
     _index ++;
     return 1;
@@ -149,14 +178,35 @@ int GraphicEnd::readimage()
     return 0;
 }
 
-void GraphicEnd::generateKeyFrame()
+void GraphicEnd::generateKeyFrame( Eigen::Isometry3d T )
 {
     cout<<BOLDGREEN<<"GraphicEnd::generateKeyFrame"<<RESET<<endl;
     _keyframes.push_back( _currKF );
 
-    //当present中的数据存储到current中
+    //把present中的数据存储到current中
     _currKF.id ++;
     _currKF.planes = _present.planes;
+    _currKF.frame_index = _index;
+    _lastRGB = _currRGB.clone();
+    _kf_pos = _robot;
+    
+    //将current关键帧存储至全局优化器
+    SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
+    //顶点
+    VertexSE3* v = new VertexSE3();
+    v->setId( _currKF.id );
+    v->setEstimate( _robot );
+    opt.addVertex( v );
+    //边
+    EdgeSE3* edge = new EdgeSE3();
+    edge->vertices()[0] = opt.vertex( _currKF.id - 1 );
+    edge->vertices()[1] = opt.vertex( _currKF.id );
+    Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
+    information(0, 0) = information(1,1) = information(2,2) = 100; 
+    information(3,3) = information(4,4) = information(5,5) = 100; 
+    edge->setInformation( information );
+    edge->setMeasurement( T );
+    opt.addEdge( edge );
     
 }
 
@@ -205,6 +255,9 @@ vector<PLANE> GraphicEnd::extractPlanes( PointCloud::Ptr cloud)
         extract.setNegative( true );
         extract.filter( *tmp );
         i++;
+
+        if (i > _max_planes)
+            break;
     }
 
     cout<<"Total planes: "<<i<<endl;
@@ -348,7 +401,7 @@ vector<DMatch> GraphicEnd::match( Mat desp1, Mat desp2 )
     return good_matches;
 }
 
-Eigen::Isometry3d GraphicEnd::pnp( PLANE& p1, PLANE& p2)
+vector<DMatch> GraphicEnd::pnp( PLANE& p1, PLANE& p2)
 {
     vector<DMatch> matches = match( p1.desp, p2.desp );
     cout<<"good matches: "<<matches.size()<<endl;
@@ -373,10 +426,14 @@ Eigen::Isometry3d GraphicEnd::pnp( PLANE& p1, PLANE& p2)
         inlierMatches.push_back( matches[inliers.at<int>(i,0)] );
     
     cout<<"inliers = "<<inliers.rows<<endl;
+
+    /*
     if (inliers.rows < 4)
     {
         cerr<<"No enough inliers."<<endl;
     }
+
+    
     Mat image_matches;
     drawMatches(p1.image, p1.kp, p2.image, p2.kp, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
     imshow("match", image_matches);
@@ -392,8 +449,9 @@ Eigen::Isometry3d GraphicEnd::pnp( PLANE& p1, PLANE& p2)
     Eigen::AngleAxisd angle(r);
     Eigen::Translation<double,3> trans(tvec.at<double>(0,0), tvec.at<double>(0,1), tvec.at<double>(0,2));
     T = angle * trans;
-    
-    return T;
+    */
+    //return T;
+    return inlierMatches;
 }
 
 Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2)
@@ -401,6 +459,47 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
     cout<<"solving multi PnP"<<endl;
     vector<DMatch> matches = match( plane1, plane2 );
     cout<<"matches of two planes: "<<matches.size()<<endl;
+
+    vector<Point3f> obj; 
+    vector<Point2f> img;
+    
+    for (size_t i=0; i<matches.size(); i++)
+    {
+        vector<DMatch> kpMatches = pnp( plane1[matches[i].queryIdx], plane2[matches[i].trainIdx] );
+        for (size_t j=0; j<kpMatches.size(); j++)
+        {
+            obj.push_back( plane1[matches[i].queryIdx].kp_pos[kpMatches[j].queryIdx] );
+            img.push_back( plane2[matches[i].trainIdx].kp[kpMatches[j].trainIdx].pt );
+        }
+    }
+
+    if (obj.empty())
+        return Eigen::Isometry3d::Identity();
+    
+    double camera_matrix[3][3] = { { camera_fx, 0, camera_cx }, { 0, camera_fy ,camera_cy }, { 0, 0, 1 }};
+    Mat cameraMatrix(3,3,CV_64F, camera_matrix);
+    Mat rvec, tvec; 
+    Mat inliers;
+    solvePnPRansac(obj, img, cameraMatrix, Mat(), rvec, tvec, false, 100, 8.0, 100, inliers);
+
+    if (inliers.rows < 5)
+        return Eigen::Isometry3d::Identity();
+
+    cout<<CYAN<<"multiICP::inliers = "<<inliers.rows<<RESET<<endl;
+
+    Eigen::Isometry3d T = Isometry3d::Identity();
+    // 旋转向量转换成旋转矩阵
+    Mat R;
+    Rodrigues( rvec, R );
+    Eigen::Matrix3d r;
+    cv2eigen(R, r);
+    
+    Eigen::AngleAxisd angle(r);
+    Eigen::Translation<double,3> trans(tvec.at<double>(0,0), tvec.at<double>(0,1), tvec.at<double>(0,2));
+    T = angle * trans;
+    return T;
+
+    /*
     vector<Eigen::Isometry3d> transforms;
     for (size_t i=0; i<matches.size(); i++)
     {
@@ -409,6 +508,13 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
         cout<<"T"<<i<<" = "<<endl;
         cout<<t.matrix()<<endl;
         transforms.push_back(t);
+    }
+
+    if (transforms.empty())
+        return Eigen::Isometry3d::Identity();
+    if (transforms.size() == 1)
+    {
+        return transforms[0];
     }
     //构造本地的图来求解帧间匹配
     
@@ -452,7 +558,8 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
     cout<<"result of local optimization: "<<endl;
     cout<<esti.matrix()<<endl;
 
-    return esti;
+    */
+    //return esti;
 }
 
 ////////////////////////////////////////
