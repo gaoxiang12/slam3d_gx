@@ -18,6 +18,7 @@
 #include <string>
 
 //PCL
+
 #include <pcl/ModelCoefficients.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
@@ -25,6 +26,9 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
 #include <pcl/filters/extract_indices.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/common/transforms.h>
+//G2O
 
 #include <g2o/types/slam3d/types_slam3d.h>
 #include <g2o/core/sparse_optimizer.h>
@@ -89,6 +93,7 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
         _currKF.planes[i].kp = extractKeypoints(_currKF.planes[i].image);
         _currKF.planes[i].desp = extractDescriptor( _currRGB, _currKF.planes[i].kp );
         compute3dPosition( _currKF.planes[i], _currDep );
+        _keyframes.push_back( _currKF );
     }
 
     //将current存储至全局优化器
@@ -106,6 +111,7 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
 int GraphicEnd::run()
 {
     //清空present并读取新的数据
+    cout<<"********************"<<endl;
     _present.planes.clear();
     
     readimage();
@@ -139,7 +145,6 @@ int GraphicEnd::run()
         //生成一个新的关键帧
         _robot = T * _kf_pos;
         generateKeyFrame(T);
-        
     }
     else
     {
@@ -181,14 +186,16 @@ int GraphicEnd::readimage()
 void GraphicEnd::generateKeyFrame( Eigen::Isometry3d T )
 {
     cout<<BOLDGREEN<<"GraphicEnd::generateKeyFrame"<<RESET<<endl;
-    _keyframes.push_back( _currKF );
-
     //把present中的数据存储到current中
     _currKF.id ++;
     _currKF.planes = _present.planes;
     _currKF.frame_index = _index;
     _lastRGB = _currRGB.clone();
     _kf_pos = _robot;
+
+    cout<<"add key frame: "<<_currKF.id<<endl;
+    //waitKey(0);
+    _keyframes.push_back( _currKF );
     
     //将current关键帧存储至全局优化器
     SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
@@ -562,6 +569,53 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
     //return esti;
 }
 
+void GraphicEnd::saveFinalResult( string fileaddr )
+{
+    // g2o进行全局优化
+    cout<<"saving final result"<<endl;
+    SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
+    opt.setVerbose( true );
+    opt.initializeOptimization();
+    opt.optimize( 10 );
+
+    // 拼合所有关键帧
+    PointCloud::Ptr output(new PointCloud());
+    PointCloud::Ptr curr( new PointCloud());
+    stringstream ss;
+    pcl::VoxelGrid<PointT> voxel;
+    voxel.setLeafSize( 0.01, 0.01, 0.01 );
+    for (size_t i=1; i<_keyframes.size(); i++)
+    {
+        cout<<"keyframe "<<i<<" id = "<<_keyframes[i].id<<endl;
+        ss<<_pclPath<<_keyframes[i].frame_index<<".pcd";
+        string str;
+        ss>>str;
+        cout<<"loading "<<str<<endl;
+        ss.clear();
+        pcl::io::loadPCDFile( str, *curr );
+
+        VertexSE3* pv = dynamic_cast<VertexSE3*> (opt.vertex( _keyframes[i].id ));
+        if (pv == NULL)
+            break;
+        Eigen::Isometry3d pos = pv->estimate();
+        cout<<"Node "<<i<<" T = "<<endl;
+        cout<<pos.matrix()<<endl;
+        
+        PointCloud::Ptr tmp( new PointCloud());
+        pcl::transformPointCloud( *curr, *tmp, pos.matrix());
+        *output += *tmp;
+
+        //格点滤波
+        voxel.setInputCloud( output );
+        PointCloud::Ptr output_filtered( new PointCloud );
+        voxel.filter( *output_filtered );
+        output->swap( *output_filtered );
+    }
+    //存储点云
+    pcl::io::savePCDFile( fileaddr, *output );
+    cout<<"final result is saved at "<<fileaddr<<endl;
+    
+}
 ////////////////////////////////////////
 //SLAMEnd
 

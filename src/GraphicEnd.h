@@ -70,7 +70,10 @@ class GraphicEnd
     int process();
 
     //将present作为一个新的关键帧，传入current到present的变换矩阵
-    void generateKeyFrame( Eigen::Isometry3d T );    
+    void generateKeyFrame( Eigen::Isometry3d T );
+
+    //输出最后点云结果
+    void saveFinalResult( string fileaddr );
     //internal
 
     vector<PLANE> extractPlanes( PointCloud::Ptr cloud ); //从点云提取一组平面
