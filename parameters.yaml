@@ -3,19 +3,19 @@
 #  图像选项
 #########################################
 # 数据库根目录位置：该目录下应该有rgb_index/和dep_index/两个文件夹，记录了rgb图与深度度
-data_source: /home/y/code/dataset/fr1_xyz
+data_source: /home/y/code/dataset/slam
 # 图像特征的检测算子与描述算子的名称
 detector_name: STAR
 descriptor_name: SIFT
 # 数据的起始编号与结束编号
-start_index: 1
+start_index: 500
 end_index: 2001
 # 是否在灰度图中处理数据：暂不支持颜色信息
 grayscale: yes
 # 两帧相邻图像描述子之间最小匹配距离
 match_min_dist: 5
 # 每一次循环的等待时间（毫秒）
-step_time: 10
+step_time: 0
 # 发现关键帧时等待时间
 step_time_keyframe: 100
 # 相邻两帧的最大距离，超过此距离则放弃该帧
@@ -49,7 +49,7 @@ max_pos_change: 0.2
 # 是否在线生成点云图（较耗时间）
 online_pcl: yes
 # 栅格大小
-grid_leaf: 0.002
+grid_leaf: 0.05
 # 是否使用FAB-MAP 2.0
 fabmap: no
 
@@ -61,6 +61,10 @@ distance_threshold: 0.05
 # 平面点的百分比
 plane_percent: 0.3
 # 归类图像点时的误差阈值（较大时会把离平面较远的点也算在平面上）
-min_error_plane: 0.01
+min_error_plane: 0.001
 # 最大平面数量
 max_planes: 4
+# 是否使用闭环
+loop_closure_detection: yes
+# 闭环检测随机取多少帧
+loopclosure_frames: 20

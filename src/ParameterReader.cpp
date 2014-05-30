@@ -59,6 +59,8 @@ ParameterReader::ParameterReader(const string& para_file )
     config[ "plane_percent" ] >> _plane_percent;
     config[ "min_error_plane" ] >> _min_error_plane;
     config["max_planes"] >> _max_planes;
+    config[ "loop_closure_detection" ] >> _loop_closure_detection;
+    config[ "loopclosure_frames"] >> _loopclosure_frames;
 }
 
 string ParameterReader::GetPara( const string& para_name )
@@ -111,6 +113,10 @@ string ParameterReader::GetPara( const string& para_name )
         return num2string(_min_error_plane );
     if (para_name == string("max_planes"))
         return num2string( _max_planes );
+    if (para_name == string("loopclosure_frames"))
+        return num2string( _loopclosure_frames );
+    if (para_name == string("loop_closure_detection"))
+        return _loop_closure_detection;
     cerr<<"Unknown parameter: "<<para_name<<endl;
     return string("unknown_para_name");
 }

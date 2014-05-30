@@ -16,6 +16,10 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <cstdlib>
+#include <cstdio>
+#include <ctime>
+#include <algorithm>
 
 //PCL
 
@@ -54,6 +58,8 @@ GraphicEnd::GraphicEnd() :
     _descriptor = DescriptorExtractor::create( g_pParaReader->GetPara("descriptor_name") );
 
     _robot = Isometry3d::Identity();
+
+    srand( (unsigned int) time(0) );
 }
 
 GraphicEnd::~GraphicEnd()
@@ -79,6 +85,8 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
     _percent = atof( g_pParaReader->GetPara("plane_percent").c_str() );
     _max_pos_change = atof( g_pParaReader->GetPara("max_pos_change").c_str());
     _max_planes = atoi( g_pParaReader->GetPara("max_planes").c_str() );
+    _loopclosure_frames = atoi( g_pParaReader->GetPara("loopclosure_frames").c_str() );
+    _loop_closure_detection = (g_pParaReader->GetPara("loop_closure_detection") == string("yes"))?true:false;
     _robot = _kf_pos = Eigen::Isometry3d::Identity();
     
     //读取首帧图像并处理
@@ -145,6 +153,8 @@ int GraphicEnd::run()
         //生成一个新的关键帧
         _robot = T * _kf_pos;
         generateKeyFrame(T);
+        if (_loop_closure_detection == true)
+            loopClosure();
     }
     else
     {
@@ -350,6 +360,8 @@ vector<DMatch> GraphicEnd::match( vector<PLANE>& p1, vector<PLANE>& p2 )
     }
 
     matcher.match( des1, des2, matches);
+
+    return matches;
     double max_dist = 0, min_dist = 100;
     for (int i=0; i<des1.rows; i++)
     {
@@ -359,13 +371,14 @@ vector<DMatch> GraphicEnd::match( vector<PLANE>& p1, vector<PLANE>& p2 )
         if (dist > max_dist)
             max_dist = dist;
     }
-
+    cout<<"plane match: total "<<matches.size()<<" matches. min dist = "<<min_dist<<endl;
     //choose good matches
     vector<DMatch> good_matches;
     
     for (int i=0; i<des1.rows; i++)
     {
-        if (matches[ i ].distance <= max(2*min_dist, _match_min_dist))
+        cout<<matches[i].distance<<endl;
+        if (matches[ i ].distance <= max(4*min_dist, _match_min_dist))
         {
             good_matches.push_back(matches[ i ]);
         }
@@ -412,6 +425,10 @@ vector<DMatch> GraphicEnd::pnp( PLANE& p1, PLANE& p2)
 {
     vector<DMatch> matches = match( p1.desp, p2.desp );
     cout<<"good matches: "<<matches.size()<<endl;
+    if (matches.size() == 0)
+    {
+        return vector<DMatch> ();
+    }
 
     vector<Point3f> obj; 
     vector<Point2f> img;
@@ -434,33 +451,15 @@ vector<DMatch> GraphicEnd::pnp( PLANE& p1, PLANE& p2)
     
     cout<<"inliers = "<<inliers.rows<<endl;
 
-    /*
-    if (inliers.rows < 4)
-    {
-        cerr<<"No enough inliers."<<endl;
-    }
-
-    
     Mat image_matches;
     drawMatches(p1.image, p1.kp, p2.image, p2.kp, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
-    imshow("match", image_matches);
+    imshow("match_of_planes", image_matches);
     waitKey(_step_time);
 
-    Eigen::Isometry3d T = Isometry3d::Identity();
-    // 旋转向量转换成旋转矩阵
-    Mat R;
-    Rodrigues( rvec, R );
-    Eigen::Matrix3d r;
-    cv2eigen(R, r);
-    
-    Eigen::AngleAxisd angle(r);
-    Eigen::Translation<double,3> trans(tvec.at<double>(0,0), tvec.at<double>(0,1), tvec.at<double>(0,2));
-    T = angle * trans;
-    */
-    //return T;
     return inlierMatches;
 }
 
+//通过若干个平面求解PnP问题，当匹配不上时会返回I
 Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2)
 {
     cout<<"solving multi PnP"<<endl;
@@ -469,7 +468,10 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
 
     vector<Point3f> obj; 
     vector<Point2f> img;
-    
+
+    vector<KeyPoint> kp1, kp2;
+    vector<DMatch> match_show;
+    int n=0;
     for (size_t i=0; i<matches.size(); i++)
     {
         vector<DMatch> kpMatches = pnp( plane1[matches[i].queryIdx], plane2[matches[i].trainIdx] );
@@ -477,6 +479,11 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
         {
             obj.push_back( plane1[matches[i].queryIdx].kp_pos[kpMatches[j].queryIdx] );
             img.push_back( plane2[matches[i].trainIdx].kp[kpMatches[j].trainIdx].pt );
+            kp1.push_back( plane1[matches[i].queryIdx].kp[kpMatches[j].queryIdx]);
+            kp2.push_back( plane2[matches[i].trainIdx].kp[kpMatches[j].trainIdx]);
+
+            match_show.push_back( DMatch(n, n, kpMatches[j].distance) );
+            n++;
         }
     }
 
@@ -492,8 +499,17 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
     if (inliers.rows < 5)
         return Eigen::Isometry3d::Identity();
 
+    vector<DMatch> inlierMatches;
+    for (int i=0; i<inliers.rows; i++)
+        inlierMatches.push_back( match_show[inliers.at<int>(i,0)] );
+    
     cout<<CYAN<<"multiICP::inliers = "<<inliers.rows<<RESET<<endl;
-
+    cout<<"matches: "<<match_show.size()<<endl;
+    Mat image_matches;
+    drawMatches(_lastRGB, kp1, _currRGB, kp2, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
+    imshow("match", image_matches);
+    waitKey(_step_time);
+    
     Eigen::Isometry3d T = Isometry3d::Identity();
     // 旋转向量转换成旋转矩阵
     Mat R;
@@ -583,7 +599,8 @@ void GraphicEnd::saveFinalResult( string fileaddr )
     PointCloud::Ptr curr( new PointCloud());
     stringstream ss;
     pcl::VoxelGrid<PointT> voxel;
-    voxel.setLeafSize( 0.01, 0.01, 0.01 );
+    double grid_leaf = atof(g_pParaReader->GetPara("grid_leaf").c_str() );
+    voxel.setLeafSize( grid_leaf, grid_leaf, grid_leaf );
     for (size_t i=1; i<_keyframes.size(); i++)
     {
         cout<<"keyframe "<<i<<" id = "<<_keyframes[i].id<<endl;
@@ -614,11 +631,55 @@ void GraphicEnd::saveFinalResult( string fileaddr )
     //存储点云
     pcl::io::savePCDFile( fileaddr, *output );
     cout<<"final result is saved at "<<fileaddr<<endl;
-    
+    opt.save("./data/final_after.g2o");
+}
+
+//回环检测：在过去的帧中随机取_loopclosure_frames那么多帧进行两两比较
+void GraphicEnd::loopClosure()
+{
+    if (_keyframes.size() <= 3 )  //小于3时，回环没有意义
+        return;
+    cout<<"Checking loop closure."<<endl;
+    vector<int> checked;
+    SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
+
+    for (int i=0; i<_loopclosure_frames; i++)
+    {
+        int frame = 1 + rand() % (_keyframes.size() -3 ); //随机在过去的帧中取一帧
+        if ( find(checked.begin(), checked.end(), frame) != checked.end() ) //之前已检查过
+            continue;
+        checked.push_back( frame );
+        vector<PLANE>& p1 = _keyframes[frame].planes;
+        Eigen::Isometry3d T = multiPnP( p1, _currKF.planes );
+        
+        if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
+            continue;
+        Eigen::Vector3d rpy = T.rotation().eulerAngles(0, 1, 2);
+        Eigen::Vector3d trans = T.translation();
+        double norm = rpy.norm() + trans.norm();
+        if (norm > 0.5)
+            continue;
+        T = T.inverse();
+        
+        //若匹配上，则在两个帧之间加一条边
+        cout<<BOLDBLUE<<"find a loop closure between kf "<<_currKF.id<<" and kf "<<frame<<RESET<<endl;
+        EdgeSE3* edge = new EdgeSE3();
+        edge->vertices() [0] = opt.vertex( _keyframes[frame].id );
+        edge->vertices() [1] = opt.vertex( _currKF.id );
+        Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
+        information(0, 0) = information(1,1) = information(2,2) = 100; 
+        information(3,3) = information(4,4) = information(5,5) = 100; 
+        edge->setInformation( information );
+        edge->setMeasurement( T );
+
+        
+        opt.addEdge( edge );
+    }
 }
 ////////////////////////////////////////
 //SLAMEnd
 
 void SLAMEnd::setupLocalOptimizer()
 {
+
 }

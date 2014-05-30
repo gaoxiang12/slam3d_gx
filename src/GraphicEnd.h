@@ -110,6 +110,9 @@ class GraphicEnd
 
     //求解两组平面间的多PnP问题，算法将调用SLAM端构造局部子图
     Eigen::Isometry3d multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2);
+
+    //闭环检测
+    void loopClosure();
     
  public:
     //data
@@ -139,7 +142,11 @@ class GraphicEnd
     double _percent;
     double _max_pos_change;
     int _max_planes;
+    bool _loop_closure_detection;
+    int _loopclosure_frames;
+    
     stringstream ss;
+    
 };
 
 /* ****************************************
