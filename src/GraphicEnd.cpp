@@ -87,6 +87,8 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
     _max_planes = atoi( g_pParaReader->GetPara("max_planes").c_str() );
     _loopclosure_frames = atoi( g_pParaReader->GetPara("loopclosure_frames").c_str() );
     _loop_closure_detection = (g_pParaReader->GetPara("loop_closure_detection") == string("yes"))?true:false;
+    _loop_closure_error = atof(g_pParaReader->GetPara("loop_closure_error").c_str());
+    _lost_frames = atoi( g_pParaReader->GetPara("lost_frames").c_str() );
     _robot = _kf_pos = Eigen::Isometry3d::Identity();
     
     //读取首帧图像并处理
@@ -95,9 +97,9 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
     _currKF.id = 0;
     _currKF.frame_index = _index;
     _currKF.planes = extractPlanes( _currCloud ); //抓平面
+    generateImageOnPlane( _currRGB, _currKF.planes, _currDep);
     for ( size_t i=0; i<_currKF.planes.size(); i++ )
     {
-        generateImageOnPlane( _currRGB, _currKF.planes[i],  _currDep );
         _currKF.planes[i].kp = extractKeypoints(_currKF.planes[i].image);
         _currKF.planes[i].desp = extractDescriptor( _currRGB, _currKF.planes[i].kp );
         compute3dPosition( _currKF.planes[i], _currDep );
@@ -126,9 +128,10 @@ int GraphicEnd::run()
     
     //处理present
     _present.planes = extractPlanes( _currCloud );
+    generateImageOnPlane( _currRGB, _present.planes, _currDep );
+
     for ( size_t i=0; i<_present.planes.size(); i++ )
     {
-        generateImageOnPlane( _currRGB, _present.planes[i], _currDep );
         _present.planes[i].kp = extractKeypoints( _present.planes[i].image );
         _present.planes[i].desp = extractDescriptor( _currRGB, _present.planes[i].kp );
         compute3dPosition( _present.planes[i], _currDep);
@@ -143,9 +146,17 @@ int GraphicEnd::run()
     Eigen::Vector3d trans = T.translation();
     double norm = rpy.norm() + trans.norm();
     cout<<RED<<"norm of T = "<<norm<<RESET<<endl;
-    if (norm > 1.0)
+    if ( T.matrix() == Eigen::Isometry3d::Identity().matrix() )
     {
+        //未匹配上
+        cout<<BOLDRED"This frame lost"<<RESET<<endl;
+        _lost++;
+    }
+    else if (norm > 1.0)
+    {
+        //PnP计算结果不对
         cerr<<"an error occured."<<endl;
+        _lost++;
         //waitKey(0);
     }
     else if (norm > _max_pos_change)
@@ -155,11 +166,19 @@ int GraphicEnd::run()
         generateKeyFrame(T);
         if (_loop_closure_detection == true)
             loopClosure();
+        _lost = 0;
     }
     else
     {
         //小变化，更新robot位置
         _robot = T * _kf_pos;
+        _lost = 0;
+    }
+    if (_lost > _lost_frames)
+    {
+        cerr<<"the robot lost. Perform lost recovery."<<endl;
+        //waitKey(0);
+        lostRecovery();
     }
 
     cout<<YELLOW<<"robot: "<<endl;
@@ -281,50 +300,78 @@ vector<PLANE> GraphicEnd::extractPlanes( PointCloud::Ptr cloud)
     return planes;
 }
 
-void GraphicEnd::generateImageOnPlane( Mat rgb, PLANE& plane, Mat depth)
+void GraphicEnd::generateImageOnPlane( Mat rgb, vector<PLANE>& planes, Mat depth)
 {
     cout<<"GraphicEnd::generateImageOnPlane"<<endl;
-    plane.image = rgb.clone();
-    int rows = plane.image.rows, cols = plane.image.cols;
+
+    cout<<"Planes: "<<planes.size()<<endl;
+    int rows = rgb.rows;
+    int cols = rgb.cols;
+    for (size_t t = 0; t<planes.size(); t++)
+    {
+        planes[t].image = rgb.clone();
+    }
+    
     for (int j=0; j<rows; j++)
     {
-        uchar* data = plane.image.ptr<uchar> (j); //行指针
+        uchar* data = rgb.ptr<uchar> (j); //行指针
         ushort* depData = depth.ptr<ushort> (j);
         for (int i=0; i<cols; i++)
         {
             ushort d = depData[i];
             if (d == 0)
             {
-                data[i] = 0; //置0
+                for (size_t t=0; t<planes.size(); t++)
+                {
+                    planes[t].image.ptr<uchar> (j) [i] = 0;
+                }
                 continue;
             }
             double z = double(d)/camera_factor;
             double x = ( i - camera_cx) * z / camera_fx;
             double y = ( j - camera_cy) * z / camera_fy;
-            
-            double e = plane.coff.values[0]*x + plane.coff.values[1]*y + plane.coff.values[2]*z + plane.coff.values[3];
-            e*=e;
-            if ( e < _min_error_plane )
+
+            for (size_t t=0; t<planes.size(); t++)
             {
+                pcl::ModelCoefficients coff = planes[t].coff;
+                double e = coff.values[0]*x + coff.values[1]*y + coff.values[2]*z + coff.values[3];
+                e*= e;
+                //cout<<e<<endl;
+
+                if (e > _min_error_plane)
+                {
+                    planes[t].image.ptr<uchar> (j) [i] = 0;
+                }
             }
-            else
-                data[i] = 0;
         }
     }
 
-    Mat dst;
-    equalizeHist( plane.image, dst );
-    plane.image = dst.clone();
-    //imshow("image", plane.image);
-    //waitKey(0);
+    for (size_t t=0; t<planes.size(); t++)
+    {
+        Mat dst;
+        equalizeHist( planes[t].image, planes[t].image );
+        //planes[t].image = dst.clone();
+        //        imshow("Planes", planes[t].image);
+        //waitKey( _step_time );
+    }
 }
 
 void GraphicEnd::compute3dPosition( PLANE& plane, Mat depth)
 {
+    double
+        a = plane.coff.values[0],
+        b = plane.coff.values[1],
+        c = plane.coff.values[2],
+        d = plane.coff.values[3];
     for (size_t i=0; i<plane.kp.size(); i++)
     {
         double u = plane.kp[i].pt.x, v = plane.kp[i].pt.y;
-        unsigned short d = depth.at<unsigned short>(round(v), round(u));
+        double k1 = (u - camera_cx) / camera_fx, k2 = ( v - camera_cy ) / camera_fy;
+        double z = -d / (a*k1 + b*k2 + c);
+        double x = k1*z, y = k2*z;
+
+        /*
+          unsigned short d = depth.at<unsigned short>(round(v), round(u));
         if (d == 0)
         {
             plane.kp_pos.push_back( Point3f(0,0,0) );
@@ -333,6 +380,8 @@ void GraphicEnd::compute3dPosition( PLANE& plane, Mat depth)
         double z = double(d)/camera_factor;
         double x = ( u - camera_cx) * z / camera_fx;
         double y = ( v - camera_cy) * z / camera_fy;
+        */
+        
         plane.kp_pos.push_back(Point3f( x, y, z) );
     }
 }
@@ -412,7 +461,7 @@ vector<DMatch> GraphicEnd::match( Mat desp1, Mat desp2 )
     
     for (size_t i=0; i<matches.size(); i++)
     {
-        if (matches[ i ].distance <= max(2*min_dist, match_min_dist))
+        if (matches[ i ].distance <= max(2*min_dist, _match_min_dist))
         {
             good_matches.push_back(matches[ i ]);
         }
@@ -520,6 +569,7 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
     Eigen::AngleAxisd angle(r);
     Eigen::Translation<double,3> trans(tvec.at<double>(0,0), tvec.at<double>(0,1), tvec.at<double>(0,2));
     T = angle * trans;
+
     return T;
 
     /*
@@ -615,6 +665,12 @@ void GraphicEnd::saveFinalResult( string fileaddr )
         if (pv == NULL)
             break;
         Eigen::Isometry3d pos = pv->estimate();
+        Eigen::Vector3d rpy = pos.rotation().eulerAngles(0, 1, 2);
+        Eigen::Vector3d trans = pos.translation();
+        double norm = rpy.norm() + trans.norm();
+        if (norm >= 100)
+            break;
+        
         cout<<"Node "<<i<<" T = "<<endl;
         cout<<pos.matrix()<<endl;
         
@@ -657,7 +713,7 @@ void GraphicEnd::loopClosure()
         Eigen::Vector3d rpy = T.rotation().eulerAngles(0, 1, 2);
         Eigen::Vector3d trans = T.translation();
         double norm = rpy.norm() + trans.norm();
-        if (norm > 0.5)
+        if (norm > _loop_closure_error)
             continue;
         T = T.inverse();
         
@@ -671,11 +727,88 @@ void GraphicEnd::loopClosure()
         information(3,3) = information(4,4) = information(5,5) = 100; 
         edge->setInformation( information );
         edge->setMeasurement( T );
-
-        
+        edge->setRobustKernel( _pSLAMEnd->_robustKernel );
         opt.addEdge( edge );
     }
 }
+
+void GraphicEnd::lostRecovery()
+{
+    //以present作为新的关键帧
+    cout<<BOLDYELLOW<<"Lost Recovery..."<<RESET<<endl;
+    //把present中的数据存储到current中
+    _currKF.id ++;
+    _currKF.planes = _present.planes;
+    _currKF.frame_index = _index;
+    _lastRGB = _currRGB.clone();
+    _kf_pos = _robot;
+
+    cout<<"add key frame: "<<_currKF.id<<endl;
+    //waitKey(0);
+    _keyframes.push_back( _currKF );
+    
+    //将current关键帧存储至全局优化器
+    SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
+    //顶点
+    VertexSE3* v = new VertexSE3();
+    v->setId( _currKF.id );
+    v->setEstimate( _robot );
+    opt.addVertex( v );
+
+    //由于当前位置不知道,所以不添加与上一帧相关的边
+    //边
+    EdgeSE3* edge = new EdgeSE3();
+    edge->vertices()[0] = opt.vertex( _currKF.id - 1 );
+    edge->vertices()[1] = opt.vertex( _currKF.id );
+    Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
+    information(0, 0) = information(1,1) = information(2,2) = 1; 
+    information(3,3) = information(4,4) = information(5,5) = 1; 
+    edge->setInformation( information );
+    edge->setMeasurement( Eigen::Isometry3d::Identity() );
+    opt.addEdge( edge );
+    //check loop closure
+    for (int i=0; i<_keyframes.size() - 2; i++)
+    {
+        vector<PLANE>& p1 = _keyframes[ i+1 ].planes;
+        Eigen::Isometry3d T = multiPnP( p1, _currKF.planes );
+        
+        if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
+            continue;
+        Eigen::Vector3d rpy = T.rotation().eulerAngles(0, 1, 2);
+        Eigen::Vector3d trans = T.translation();
+        double norm = rpy.norm() + trans.norm();
+        if (norm > _loop_closure_error)
+            continue;
+        T = T.inverse();
+        
+        //若匹配上，则在两个帧之间加一条边
+        EdgeSE3* edge = new EdgeSE3();
+        edge->vertices() [0] = opt.vertex( _keyframes[i+1].id );
+        edge->vertices() [1] = opt.vertex( _currKF.id );
+        Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
+        information(0, 0) = information(1,1) = information(2,2) = 100; 
+        information(3,3) = information(4,4) = information(5,5) = 100; 
+        edge->setInformation( information );
+        edge->setMeasurement( T );
+        edge->setRobustKernel( _pSLAMEnd->_robustKernel );
+        opt.addEdge( edge );
+    }
+    
+    
+    /*
+    //边
+    EdgeSE3* edge = new EdgeSE3();
+    edge->vertices()[0] = opt.vertex( _currKF.id - 1 );
+    edge->vertices()[1] = opt.vertex( _currKF.id );
+    Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
+    information(0, 0) = information(1,1) = information(2,2) = 100; 
+    information(3,3) = information(4,4) = information(5,5) = 100; 
+    edge->setInformation( information );
+    edge->setMeasurement( T );
+    opt.addEdge( edge );
+    */
+}
+
 ////////////////////////////////////////
 //SLAMEnd
 

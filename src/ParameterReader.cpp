@@ -6,14 +6,11 @@
 using namespace std;
 
 ParameterReader* g_pParaReader;
+double camera_fx, camera_fy,  camera_cx, camera_cy, camera_factor;
 
 ParameterReader::ParameterReader(const string& para_file )
 {
-    if (debug_info)
-    {
-        cout<<"init parameterReader, file addr = "<<
-            para_file<<endl;
-    }
+    cout<<"init parameterReader, file addr = "<< para_file<<endl;
 
     ifstream fin(para_file.c_str());
 
@@ -33,10 +30,7 @@ ParameterReader::ParameterReader(const string& para_file )
     config[ "descriptor_name" ] >> _descriptor_name;
     config[ "start_index" ] >> _start_index;
     config[ "end_index" ] >> _end_index;
-    config[ "grayscale" ] >> _grayscale;
     config[ "step_time" ] >> _step_time;
-    config[ "save_if_seen" ] >> _save_if_seen;
-    config[ "del_not_seen" ] >> _del_not_seen;
     config[ "optimize_step" ] >> _optimize_step;
     config[ "robust_kernel" ] >> _robust_kernel;
     if (_end_index < _start_index)
@@ -45,13 +39,8 @@ ParameterReader::ParameterReader(const string& para_file )
         return;
     }
 
-    config[ "set_max_depth"] >> _set_max_depth;
-    config[ "max_depth" ] >> _max_depth;
-    config[ "max_landmark_per_loop" ] >> _max_landmark_per_loop;
     config[ "max_pos_change" ] >> _max_pos_change;
     config[ "step_time_keyframe" ] >> _step_time_keyframe;
-    config[ "online_pcl" ] >> _online_pcl;
-    config[ "fabmap" ] >> _fabmap;
     config[ "error_threshold" ] >> _error_threshold;
     config[ "grid_leaf" ] >> _grid_size;
 
@@ -61,6 +50,15 @@ ParameterReader::ParameterReader(const string& para_file )
     config["max_planes"] >> _max_planes;
     config[ "loop_closure_detection" ] >> _loop_closure_detection;
     config[ "loopclosure_frames"] >> _loopclosure_frames;
+    config[ "loop_closure_error"] >> _loop_closure_error;
+
+    config[ "camera_fx" ] >> camera_fx;
+    config[ "camera_fy" ] >> camera_fy;
+    config[ "camera_cx" ] >> camera_cx;
+    config[ "camera_cy" ] >> camera_cy;
+    config[ "camera_factor" ] >> camera_factor;
+
+    config[ "lost_frames" ] >> _lost_frames;
 }
 
 string ParameterReader::GetPara( const string& para_name )
@@ -117,6 +115,10 @@ string ParameterReader::GetPara( const string& para_name )
         return num2string( _loopclosure_frames );
     if (para_name == string("loop_closure_detection"))
         return _loop_closure_detection;
+    if (para_name == string("loop_closure_error"))
+        return num2string(_loop_closure_error);
+    if (para_name == string("lost_frames"))
+        return num2string(_lost_frames);
     cerr<<"Unknown parameter: "<<para_name<<endl;
     return string("unknown_para_name");
 }

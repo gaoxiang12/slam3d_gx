@@ -78,6 +78,8 @@ class ParameterReader
 
     string _loop_closure_detection; //是否使用闭环检测
     int _loopclosure_frames;   //闭环检测时随机取多少帧
+    double _loop_closure_error; //闭环误差
+    int _lost_frames;  //丢失判定
     
 };
 

@@ -78,7 +78,7 @@ class GraphicEnd
 
     vector<PLANE> extractPlanes( PointCloud::Ptr cloud ); //从点云提取一组平面
     
-    void generateImageOnPlane( Mat rgb, PLANE&plane, Mat depth); //根据深度信息生成平面上的灰度图像
+    void generateImageOnPlane( Mat rgb, vector<PLANE>& planes, Mat depth); //根据深度信息生成平面上的灰度图像
 
     //提取关键点
     vector<KeyPoint> extractKeypoints(Mat image)        
@@ -113,7 +113,9 @@ class GraphicEnd
 
     //闭环检测
     void loopClosure();
-    
+
+    // 丢失恢复
+    void lostRecovery();
  public:
     //data
     SLAMEnd* _pSLAMEnd;
@@ -127,6 +129,7 @@ class GraphicEnd
     Mat _currRGB, _currDep, _lastRGB, _lastDep; //当前帧的灰度图/深度图与上一帧的灰度/深度图
     PointCloud::Ptr _currCloud, _lastCloud;   //当前帧与上一帧点云
 
+    int _lost; //丢失的帧数
     Ptr<FeatureDetector> _detector;
     Ptr<DescriptorExtractor> _descriptor;
     
@@ -144,7 +147,8 @@ class GraphicEnd
     int _max_planes;
     bool _loop_closure_detection;
     int _loopclosure_frames;
-    
+    double _loop_closure_error;
+    int _lost_frames;
     stringstream ss;
     
 };
