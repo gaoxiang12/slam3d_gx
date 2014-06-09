@@ -29,6 +29,7 @@
 #include <g2o/solvers/csparse/linear_solver_csparse.h>
 #include <g2o/core/robust_kernel.h>
 #include <g2o/core/robust_kernel_factory.h>
+#include <g2o/core/optimization_algorithm_levenberg.h>
 
 using namespace g2o;
 using namespace cv;
@@ -150,6 +151,8 @@ class GraphicEnd
     double _loop_closure_error;
     int _lost_frames;
     stringstream ss;
+
+    vector<int> _seed; //Loop Closure 种子关键帧
     
 };
 
@@ -158,7 +161,8 @@ class GraphicEnd
  * 求解SLAM问题的后端
  * 提供全局求解与帧间求解两个函数
  ****************************************/
-typedef BlockSolver< BlockSolverTraits<-1, -1> >  SlamBlockSolver;
+//typedef BlockSolver< BlockSolverTraits<-1, -1> >  SlamBlockSolver;
+typedef BlockSolver_6_3 SlamBlockSolver;
 typedef LinearSolverCSparse<SlamBlockSolver::PoseMatrixType> SlamLinearSolver;
 
 class SLAMEnd
@@ -177,7 +181,9 @@ class SLAMEnd
         SlamLinearSolver* linearSolver = new SlamLinearSolver();
         linearSolver->setBlockOrdering( false );
         SlamBlockSolver* blockSolver = new SlamBlockSolver( linearSolver );
-        solver = new OptimizationAlgorithmGaussNewton( blockSolver );
+        
+        //solver = new OptimizationAlgorithmGaussNewton( blockSolver );
+        solver = new OptimizationAlgorithmLevenberg( blockSolver );
         _robustKernel = RobustKernelFactory::instance()->construct( "Cauchy" );
         globalOptimizer.setVerbose( false );
         globalOptimizer.setAlgorithm( solver );
@@ -190,6 +196,7 @@ class SLAMEnd
  public:
     GraphicEnd* _pGraphicEnd;
     SparseOptimizer globalOptimizer;
-    OptimizationAlgorithmGaussNewton* solver;
+    //OptimizationAlgorithmGaussNewton* solver;
+    OptimizationAlgorithmLevenberg* solver;
     RobustKernel* _robustKernel;
 };

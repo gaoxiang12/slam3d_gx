@@ -17,4 +17,6 @@ TARGET_LINK_LIBRARIES( SLAM3d
 ADD_EXECUTABLE( run_SLAM run_SLAM.cpp )
 TARGET_LINK_LIBRARIES( run_SLAM SLAM3d )
 
-# Build test executable
+ADD_EXECUTABLE( saveOutput saveOutput.cpp )
+TARGET_LINK_LIBRARIES( saveOutput SLAM3d )
+
