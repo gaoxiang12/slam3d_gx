@@ -39,7 +39,7 @@ int main( int argc, char ** argv)
 
     pcl::PassThrough<PointT> pass;
     pass.setFilterFieldName("z");
-    pass.setFilterLimits(0.0, 6.0);
+    pass.setFilterLimits(0.0, 5.0);
     
     while( !fin.eof() )
     {

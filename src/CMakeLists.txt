@@ -20,3 +20,11 @@ TARGET_LINK_LIBRARIES( run_SLAM SLAM3d )
 ADD_EXECUTABLE( saveOutput saveOutput.cpp )
 TARGET_LINK_LIBRARIES( saveOutput SLAM3d )
 
+ADD_EXECUTABLE( testRandom testRandom.cpp )
+
+ADD_EXECUTABLE( generateTrajectory generateTrajectory.cpp )
+TARGET_LINK_LIBRARIES( generateTrajectory SLAM3d )
+
+ADD_EXECUTABLE( viewLC viewLC.cpp )
+TARGET_LINK_LIBRARIES( viewLC SLAM3d )
+

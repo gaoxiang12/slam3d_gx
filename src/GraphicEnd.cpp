@@ -196,7 +196,7 @@ int GraphicEnd::readimage()
     ss.str("");
     ss.clear();
 
-    //    imshow("rgb",_currRGB);
+    //imshow("rgb",_currRGB);
     //waitKey(0);
     
     ss<<_depPath<<_index<<".png";
@@ -229,7 +229,8 @@ void GraphicEnd::generateKeyFrame( Eigen::Isometry3d T )
     //顶点
     VertexSE3* v = new VertexSE3();
     v->setId( _currKF.id );
-    v->setEstimate( _robot );
+    //v->setEstimate( _robot );
+    v->setEstimate( Eigen::Isometry3d::Identity() );
     opt.addVertex( v );
     //边
     EdgeSE3* edge = new EdgeSE3();
@@ -523,7 +524,7 @@ vector<DMatch> GraphicEnd::pnp( PLANE& p1, PLANE& p2)
 }
 
 //通过若干个平面求解PnP问题，当匹配不上时会返回I
-Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2)
+Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2, bool loopclosure, int frame_index)
 {
     cout<<"solving multi PnP"<<endl;
     vector<DMatch> matches = match( plane1, plane2 );
@@ -562,7 +563,7 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
     Mat inliers;
     solvePnPRansac(obj, img, cameraMatrix, Mat(), rvec, tvec, false, 100, 8.0, 100, inliers);
 
-    if (inliers.rows < 5)
+    if (inliers.rows < 12)
         return Eigen::Isometry3d::Identity();
 
     vector<DMatch> inlierMatches;
@@ -571,10 +572,24 @@ Eigen::Isometry3d GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& pl
     
     cout<<CYAN<<"multiICP::inliers = "<<inliers.rows<<RESET<<endl;
     cout<<"matches: "<<match_show.size()<<endl;
-    Mat image_matches;
-    drawMatches(_lastRGB, kp1, _currRGB, kp2, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
-    imshow("match", image_matches);
-    waitKey(_step_time);
+    if (loopclosure == false)
+    {
+        Mat image_matches;
+        drawMatches(_lastRGB, kp1, _currRGB, kp2, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
+        imshow("match", image_matches);
+        waitKey(_step_time);
+    }
+    else
+    {
+        Mat image_matches;
+        stringstream ss;
+        ss<<_rgbPath<<frame_index<<".png";
+        
+        Mat rgb = imread( ss.str(), 0);
+        drawMatches( rgb, kp1, _currRGB, kp2, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
+        imshow("match", image_matches);
+        waitKey(_step_time);
+    }
     
     Eigen::Isometry3d T = Isometry3d::Identity();
     // 旋转向量转换成旋转矩阵
@@ -739,7 +754,7 @@ void GraphicEnd::loopClosure()
                 continue;
             Eigen::Vector3d rpy = T.rotation().eulerAngles(0, 1, 2);
             Eigen::Vector3d trans = T.translation();
-            double norm = rpy.norm() + trans.norm()/10;
+            double norm = rpy.norm() + trans.norm();
             if (norm > _loop_closure_error) //匹配错误
                 continue;
             T = T.inverse();
@@ -770,7 +785,7 @@ void GraphicEnd::loopClosure()
             continue;
         Eigen::Vector3d rpy = T.rotation().eulerAngles(0, 1, 2);
         Eigen::Vector3d trans = T.translation();
-        double norm = rpy.norm() + trans.norm()/10;
+        double norm = rpy.norm() + trans.norm();
         cout<<"norm = "<<norm<<endl;
         if (norm > _loop_closure_error) //匹配错误
             continue;
@@ -800,17 +815,20 @@ void GraphicEnd::loopClosure()
             continue;
         checked.push_back( frame );
         vector<PLANE>& p1 = _keyframes[frame].planes;
-        Eigen::Isometry3d T = multiPnP( p1, _currKF.planes );
+        Eigen::Isometry3d T = multiPnP( p1, _currKF.planes, true, _keyframes[frame].frame_index );
         
         if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
             continue;
         Eigen::Vector3d rpy = T.rotation().eulerAngles(0, 1, 2);
         Eigen::Vector3d trans = T.translation();
-        double norm = rpy.norm() + trans.norm()/10;
+        double norm = rpy.norm() + trans.norm();
         cout<<"norm = "<<norm<<endl;
         if (norm > _loop_closure_error)
             continue;
+        cout<<"T = "<<T.matrix()<<endl;
         T = T.inverse();
+        
+        displayLC( _keyframes[frame].frame_index, _currKF.frame_index, norm);
         newseed.push_back( frame );
         
         //若匹配上，则在两个帧之间加一条边
@@ -851,7 +869,7 @@ void GraphicEnd::lostRecovery()
     //顶点
     VertexSE3* v = new VertexSE3();
     v->setId( _currKF.id );
-    v->setEstimate( _robot );
+    v->setEstimate( Eigen::Isometry3d::Identity() );
     opt.addVertex( v );
 
     //由于当前位置不知道,所以不添加与上一帧相关的边
@@ -860,15 +878,15 @@ void GraphicEnd::lostRecovery()
     edge->vertices()[0] = opt.vertex( _currKF.id - 1 );
     edge->vertices()[1] = opt.vertex( _currKF.id );
     Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
-    information(0, 0) = information(1,1) = information(2,2) = 1; 
-    information(3,3) = information(4,4) = information(5,5) = 1; 
+    information(0, 0) = information(1,1) = information(2,2) = 100; 
+    information(3,3) = information(4,4) = information(5,5) = 100; 
     edge->setInformation( information );
     edge->setMeasurement( Eigen::Isometry3d::Identity() );
     opt.addEdge( edge );
     //check loop closure
-    for (int i=0; i<_keyframes.size() - 2; i++)
+    for (int i=0; i<_keyframes.size() - 1; i++)
     {
-        vector<PLANE>& p1 = _keyframes[ i+1 ].planes;
+        vector<PLANE>& p1 = _keyframes[ i ].planes;
         Eigen::Isometry3d T = multiPnP( p1, _currKF.planes );
         
         if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
@@ -882,7 +900,7 @@ void GraphicEnd::lostRecovery()
         
         //若匹配上，则在两个帧之间加一条边
         EdgeSE3* edge = new EdgeSE3();
-        edge->vertices() [0] = opt.vertex( _keyframes[i+1].id );
+        edge->vertices() [0] = opt.vertex( _keyframes[i].id );
         edge->vertices() [1] = opt.vertex( _currKF.id );
         Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
         information(0, 0) = information(1,1) = information(2,2) = 100; 
@@ -908,10 +926,27 @@ void GraphicEnd::lostRecovery()
     */
 }
 
-////////////////////////////////////////
-//SLAMEnd
-
-void SLAMEnd::setupLocalOptimizer()
+void GraphicEnd::displayLC( int frame1, int frame2, double norm)
 {
+    static ofstream fout("./data/lc.txt");
+    
+    Mat rgb1, rgb2;
+    stringstream ss;
+    ss<<_rgbPath<<frame1<<".png";
+    string fileaddr;
+    ss>>fileaddr;
+    ss.clear();
+    
+    rgb1 = imread( fileaddr, 0 );
 
+    ss<<_rgbPath<<frame2<<".png";
+    fileaddr.clear();
+    ss>>fileaddr;
+    rgb2 = imread( fileaddr, 0);
+
+    imshow("loopClosure_1", rgb1);
+    imshow("loopClosure_2", rgb2);
+    waitKey(10);
+
+    fout<<frame1<<" "<<frame2<<" "<<norm<<endl;
 }

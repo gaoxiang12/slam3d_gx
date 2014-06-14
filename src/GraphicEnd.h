@@ -110,10 +110,11 @@ class GraphicEnd
     vector<DMatch> pnp( PLANE& p1, PLANE& p2 ); 
 
     //求解两组平面间的多PnP问题，算法将调用SLAM端构造局部子图
-    Eigen::Isometry3d multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2);
+    Eigen::Isometry3d multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2, bool loopclosure = false, int frame_index = 0);
 
     //闭环检测
     void loopClosure();
+    void displayLC(int frame1, int frame2, double norm); //显示检测到的闭环
 
     // 丢失恢复
     void lostRecovery();
@@ -187,11 +188,8 @@ class SLAMEnd
         _robustKernel = RobustKernelFactory::instance()->construct( "Cauchy" );
         globalOptimizer.setVerbose( false );
         globalOptimizer.setAlgorithm( solver );
-        setupLocalOptimizer();
     }
 
-    void setupLocalOptimizer();
-        
 
  public:
     GraphicEnd* _pGraphicEnd;
