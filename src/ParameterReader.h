@@ -68,6 +68,8 @@ class ParameterReader
     int _loopclosure_frames;   //闭环检测时随机取多少帧
     double _loop_closure_error; //闭环误差
     int _lost_frames;  //丢失判定
+    string _use_odometry; //是否使用里程计
+    double _error_odometry; //里程计误差
     
 };
 

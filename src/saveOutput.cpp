@@ -12,12 +12,12 @@ using namespace std;
 
 void usage()
 {
-    cout<<"saveOutput keyframe.txt final.g2o"<<endl;
+    cout<<"saveOutput keyframe.txt final.g2o [ pass_z ]"<<endl;
 }
 
 int main( int argc, char ** argv)
 {
-    if (argc != 3)
+    if (argc < 3)
     {
         usage();
         return -1;
@@ -39,7 +39,10 @@ int main( int argc, char ** argv)
 
     pcl::PassThrough<PointT> pass;
     pass.setFilterFieldName("z");
-    pass.setFilterLimits(0.0, 5.0);
+    double z = 5.0;
+    if (argc == 4)
+        z = atof( argv[ 3 ]);
+    pass.setFilterLimits(0.0, z);
     
     while( !fin.eof() )
     {

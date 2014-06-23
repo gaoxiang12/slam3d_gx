@@ -54,6 +54,18 @@ struct KEYFRAME //关键帧: 一个关键帧由它上面的若干个平面组成
     vector<PLANE> planes;
 };
 
+struct RESULT_OF_MULTIPNP
+{
+    RESULT_OF_MULTIPNP() {
+        T = Eigen::Isometry3d::Identity();
+        norm = 0.0;
+        inliers = 0;
+    }
+    Eigen::Isometry3d T;
+    double norm;
+    int inliers;
+};
+
 typedef pcl::PointXYZRGBA PointT;
 typedef pcl::PointCloud<PointT> PointCloud;
 
@@ -110,21 +122,50 @@ class GraphicEnd
     vector<DMatch> pnp( PLANE& p1, PLANE& p2 ); 
 
     //求解两组平面间的多PnP问题，算法将调用SLAM端构造局部子图
-    Eigen::Isometry3d multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2, bool loopclosure = false, int frame_index = 0);
+    RESULT_OF_MULTIPNP multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2, bool loopclosure = false, int frame_index = 0, int minimum_inliers = 12);
 
     //闭环检测
     void loopClosure();
     void displayLC(int frame1, int frame2, double norm); //显示检测到的闭环
 
+    //关键帧检测
+    int testKeyframe();   //检测关键帧的质量
     // 丢失恢复
     void lostRecovery();
+
+    //读取里程计
+    Eigen::Isometry3d readOdometry(ifstream& fin)
+    {
+        string nothing[ 5 ];
+        for (int i=0; i<5; i++)
+            fin>>nothing[ i ];
+        double data[ 7 ];
+        for (int i=0; i<7; i++)
+        {
+            fin>>data[ i ];
+        }
+        fin.ignore();
+        g2o::VertexSE3 v;
+        v.setEstimateData( data );
+        Eigen::Vector3d rpy = v.estimate().rotation().eulerAngles(2, 0, 2);
+        Eigen::Isometry3d T;
+        //Eigen::Translation<double, 3> trans(-data[1], -data[2], data[0]);
+        Eigen::AngleAxisd r(rpy[2], -Eigen::Vector3d::UnitY());
+        T = r;
+        T.matrix()(0,3) = -data[1];
+        T.matrix()(1,3) = -data[2];
+        T.matrix()(2,3) = data[0];
+        return T;
+    }
  public:
     //data
     SLAMEnd* _pSLAMEnd;
     
     Eigen::Isometry3d _robot;                  //机器人的位姿，含旋转矩阵与位移向量
     Eigen::Isometry3d _kf_pos;                //机器人在关键帧上的位姿
-    
+
+    Eigen::Isometry3d _odo_last, _odo_this;
+    Eigen::Isometry3d _robot2camera;    //机器人坐标系到相机坐标系的变换
     vector<KEYFRAME> _keyframes;      //过去的关键帧
     KEYFRAME _currKF;                              //当前的关键帧
     KEYFRAME _present;                            //当前帧，也就是正在处理的那一帧
@@ -146,6 +187,7 @@ class GraphicEnd
     double _match_min_dist;
     double _percent;
     double _max_pos_change;
+    double _error_threshold;
     int _max_planes;
     bool _loop_closure_detection;
     int _loopclosure_frames;
@@ -154,13 +196,14 @@ class GraphicEnd
     stringstream ss;
 
     vector<int> _seed; //Loop Closure 种子关键帧
-    
+    bool _use_odometry;
+    double _error_odometry;
+    vector<Eigen::Isometry3d> _odometry;
 };
 
 /* ****************************************
  * SLAM End
  * 求解SLAM问题的后端
- * 提供全局求解与帧间求解两个函数
  ****************************************/
 //typedef BlockSolver< BlockSolverTraits<-1, -1> >  SlamBlockSolver;
 typedef BlockSolver_6_3 SlamBlockSolver;

@@ -36,55 +36,31 @@ int main(int argc, char** argv)
     }
 
     string fileaddr;
+    //ifstream asso( string(g_pParaReader->GetPara("data_source")+string("/associate.txt")).c_str());
     stringstream ss;
-    ss<<g_pParaReader->GetPara("data_source")<<"/associate.txt";
-    ss>>fileaddr;
-    ss.clear();
-    ifstream asso( fileaddr.c_str() );
-
     ofstream fout("trajectory.txt");
     string init_time;
     double init_data[7];
 
-    ss<<g_pParaReader->GetPara("data_source")<<"/groundtruth.txt";
-    ss>>fileaddr;
-    ifstream groundtruth( fileaddr.c_str() );
-    char buffer[100];
-    for (int i=0; i<3; i++)
-        groundtruth.getline(buffer, 100);
-
-    groundtruth>>init_time;
-    for (int i=0; i<7; i++)
-        groundtruth>>init_data[i];
-    
     int jump = 0;
     while (!fin.eof())
     {
         int frame, id;
         fin>>id>>frame;
-        //读取associate.txt中相应的时间
-        char buffer[100];
-        for (int i=0; i<frame-jump; i++)
-            asso.getline(buffer, 100);
-        string time; //时间
-        asso>>time;
         //位置
         VertexSE3* pv = dynamic_cast<VertexSE3*> (opt.vertex( id) );
         double data[7];
         pv->getEstimateData( data );
-
-        fout<<time<<" ";
         for (int i=0; i<7; i++)
             fout<<data[i]<<" ";
         fout<<endl;
 
         jump = frame;
-
     }
     cout<<"trajectory saved."<<endl;
     fout.close();
     fin.close();
-    asso.close();
+    //asso.close();
 
     delete g_pParaReader;
 }

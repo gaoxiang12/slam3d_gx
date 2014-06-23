@@ -3,19 +3,18 @@
 #  图像选项
 #########################################
 # 数据库根目录位置：该目录下应该有rgb_index/和dep_index/两个文件夹，记录了rgb图与深度度
-data_source: /home/y/code/dataset/slam_fit_6_3
+data_source: /home/zero/code/dataset/vb_corridor2
 # 图像特征的检测算子与描述算子的名称
 detector_name: STAR
 descriptor_name: SIFT
 # 数据的起始编号与结束编号
 start_index: 1
-end_index: 2198
+end_index: 729
 # 两帧相邻图像描述子之间最小匹配距离
 match_min_dist: 5
 # 每一次循环的等待时间（毫秒）
 step_time: 10
-# 相邻两帧的最大距离，超过此距离则放弃该帧
-error_threshold: 0.8
+
 
 #########################################
 #  图优化选项
@@ -36,31 +35,43 @@ grid_leaf: 0.05
 #########################################
 #  3D SLAM 选项
 #########################################
+# 相邻两帧的最大距离，超过此距离则放弃该帧
+error_threshold: 0.8
 # 提取平面时的距离阈值 （越大表示平面的精度越粗糙）
 distance_threshold: 0.05 
 # 平面点的百分比
 plane_percent: 0.3
 # 归类图像点时的误差阈值（较大时会把离平面较远的点也算在平面上）
-min_error_plane: 0.02
+min_error_plane: 0.08
 # 最大平面数量
-max_planes: 3
+max_planes: 4
 # 是否使用闭环
 loop_closure_detection: yes
 # 闭环检测随机取多少帧
-loopclosure_frames: 15
+loopclosure_frames: 10
 # 闭环检测误差阈值（离过去关键帧某个距离之内才算正确的闭环）
-loop_closure_error: 2.2
+loop_closure_error: 2.0
 # 丢失判定（连续若干帧以上匹配不到算作丢失）
 lost_frames: 5
+# 是否使用里程计
+use_odometry: yes
+# 里程计误差
+error_odometry: 0.01
 
 #########################################
 #  相机参数
 #########################################
 # my robot
-camera_fx: 535.147
-camera_fy: 535.04
-camera_cx: 297.25
-camera_cy: 247.91
+#camera_fx: 535.147
+#camera_fy: 535.04
+#camera_cx: 297.25
+#camera_cy: 247.91
+#camera_factor: 1000.0
+# default
+camera_fx: 525.00
+camera_fy: 525.00
+camera_cx: 319.50
+camera_cy: 235.50
 camera_factor: 1000.0
 # fr1
 #camera_fx: 517.0

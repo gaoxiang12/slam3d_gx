@@ -59,6 +59,8 @@ ParameterReader::ParameterReader(const string& para_file )
     config[ "camera_factor" ] >> camera_factor;
 
     config[ "lost_frames" ] >> _lost_frames;
+    config[ "use_odometry" ] >> _use_odometry;
+    config[ "error_odometry" ] >> _error_odometry;
 }
 
 string ParameterReader::GetPara( const string& para_name )
@@ -103,6 +105,10 @@ string ParameterReader::GetPara( const string& para_name )
         return num2string(_loop_closure_error);
     if (para_name == string("lost_frames"))
         return num2string(_lost_frames);
+    if (para_name == string("use_odometry"))
+        return _use_odometry;
+    if (para_name == string("error_odometry"))
+        return num2string(_error_odometry);
     cerr<<"Unknown parameter: "<<para_name<<endl;
     return string("unknown_para_name");
 }
