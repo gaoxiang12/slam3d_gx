@@ -1,3 +1,10 @@
+/* ****************************************
+ * GraphicEnd.cpp
+ * 视觉slam的核心算法
+ * TODO:
+ * 2014.6.24 生成平面图时是否应该做一些形态学运算，补掉里面的洞？
+ * 还须一个不用平面特征的对比程序以比较结果
+ *****************************************/
 #include "GraphicEnd.h"
 #include "ParameterReader.h"
 #include "const.h"
@@ -213,26 +220,22 @@ int GraphicEnd::readimage()
     ss.str("");
     ss.clear();
 
-    //imshow("rgb",_currRGB);
-    //waitKey(0);
-    
     ss<<_depPath<<_index<<".png";
     _currDep = imread(ss.str(), -1);
     ss.str("");
     ss.clear();
     ss<<_pclPath<<_index<<".pcd";
     pcl::io::loadPCDFile(ss.str(), *_currCloud);
-    static pcl::VoxelGrid<PointT> voxel;
     static pcl::PassThrough<PointT> pass;
     pass.setFilterFieldName("z");
     pass.setFilterLimits(0.0, 6.0);
     
-    voxel.setLeafSize( 0.01, 0.01, 0.01 );
-    voxel.setInputCloud( _currCloud );
     PointCloud::Ptr tmp( new PointCloud() );
-    voxel.filter(*tmp);
-    pass.setInputCloud(tmp);
-    pass.filter(*_currCloud);
+    pass.setInputCloud(_currCloud);
+    pass.filter( *tmp );
+
+    _currCloud->swap( *tmp );
+    
     ss.str("");
     ss.clear();
     cout<<"load ok."<<endl;
@@ -606,7 +609,7 @@ RESULT_OF_MULTIPNP GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& p
     Eigen::Isometry3d T = Isometry3d::Identity();
     double normofTransform = min(norm(rvec), 2*M_PI-norm(rvec)) + norm(tvec);
     cout<<RED<<"norm of Transform = "<<normofTransform<<RESET<<endl;
-    result.norm = normofTransform;
+    result.norm = abs(normofTransform );
     if (normofTransform > _error_threshold)
     {
         return result;
@@ -791,6 +794,7 @@ void GraphicEnd::lostRecovery()
         edge->setMeasurement( To );
         opt.addEdge( edge );
         _odo_last = _odo_this;
+        _lost = 0;
         return;
     }
     //check loop closure
@@ -815,7 +819,6 @@ void GraphicEnd::lostRecovery()
         opt.addEdge( edge );
     }
     
-    _lost = 0;
 }
 
 void GraphicEnd::displayLC( int frame1, int frame2, double norm)

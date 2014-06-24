@@ -3,7 +3,7 @@
 #  图像选项
 #########################################
 # 数据库根目录位置：该目录下应该有rgb_index/和dep_index/两个文件夹，记录了rgb图与深度度
-data_source: /home/zero/code/dataset/vb_corridor2
+data_source: /home/zero/code/dataset/vb_long
 # 图像特征的检测算子与描述算子的名称
 detector_name: STAR
 descriptor_name: SIFT
@@ -13,7 +13,7 @@ end_index: 729
 # 两帧相邻图像描述子之间最小匹配距离
 match_min_dist: 5
 # 每一次循环的等待时间（毫秒）
-step_time: 10
+step_time: 50
 
 
 #########################################
@@ -24,7 +24,7 @@ optimize_step: 200
 # robust核函数
 robust_kernel: Cauchy
 # 最大位移，超过此位移后需要全局优化,认为出现关键帧
-max_pos_change: 0.2
+max_pos_change: 0.3
 
 #########################################
 #  PCL
@@ -50,13 +50,13 @@ loop_closure_detection: yes
 # 闭环检测随机取多少帧
 loopclosure_frames: 10
 # 闭环检测误差阈值（离过去关键帧某个距离之内才算正确的闭环）
-loop_closure_error: 2.0
+loop_closure_error: 1.0
 # 丢失判定（连续若干帧以上匹配不到算作丢失）
 lost_frames: 5
 # 是否使用里程计
 use_odometry: yes
 # 里程计误差
-error_odometry: 0.01
+error_odometry: 0.03
 
 #########################################
 #  相机参数

@@ -1,0 +1,75 @@
+SLAM3d_gx
+Author: xiang gao
+Last update date: 6.24.2014
+
+This is a 3D visual SLAM written by xiang gao. It uses Kinect data, i.e. 
+rgb and depth images to construct a map of the robot's environment and compute
+trajectory of the robot itself. The code is experimental and will be updated commonly.
+If you have any problem please contact me:
+
+	gaoxiang12@mails.tsinghua.edu.cn
+
+Note:
+1.	In order to have the code compiled successfully, you must have the following
+	preliminary software installed in your pc.
+	
+	OpenCV		-http://www.opencv.org/
+	PCL		-http://www.pointclouds.org/
+	yaml-cpp	-sudo apt-get install yaml-cpp
+	g2o		-https://github.com/RainerKuemmerle/g2o
+	
+2.	Build
+	The code is organized as a cmake project. To build it, please type:
+	
+	mkdir build
+	cd build
+	cmake ..
+	make
+	
+	The binary files will be generated in bin/. 
+	
+3.	Get some dataset.
+	This is a SLAM system so you must have some recorded data to use them as
+	input to this program. You can also use public dataset:
+	http://vision.in.tum.de/data/datasets/rgbd-dataset
+	
+	The program's requirement about dataset is listed as follows:
+	
+	Parameters: ./parameters.yaml   -you can change the parameters at any time.
+					-The dataset's dir is also indicated in this file.
+	RGB and Depth images: must be put in "rgb_index" and "dep_index" directories,
+				or the program cannot find them. The files should be named 
+				as 1.png, 2.png and so on.
+	Pointclouds: in pcd/ directory. Index of pcd should be same as rgb and depth images.
+	Odometry: in odometry.txt The odometry data is optional and you can enable/disable
+		odometry input in parameters.yaml.
+		
+	If you only have rgb and depth files with record time, as the public dataset
+	mentioned before, we also provide some tools to convert the file formats. 
+	You can find them in tools/ dir. You can use them like this:
+	
+	mkdir rgb_index depth_index ply pcd
+	python generateTxt.py 	--rgb.txt and dep.txt will be generated.
+	python associate rgb.txt dep.txt > associate.txt --associate rgb and depth data.
+	python img2pcd 	--convert image data to pcd files.
+	
+4.	Run slam
+	After the preparation before you can run our visual slam program like this:
+	bin/run_slam [loops]
+	After slam process a trajectory file will be generated in data/final.g2o. You can 
+	watch the result using g2o_viewer and optimize it:
+	g2o_viewer data/final.g2o
+	Then save it in any place, like ./fin.g2o
+	
+5.	Save final result.
+	run:
+		bin/saveOutput data/keyframe.txt ./fin.g2o
+	You will get a pcd file of all input data in ./result.pcd
+	If you want to view the trajectory, you should copy odometry.txt to 
+	current folder run:
+		bin/generateTrajectory data/keyframe ./fin.g2o
+		python tools/drawTrajectory.py
+	Enjoy!
+	
+	
+	
