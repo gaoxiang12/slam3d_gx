@@ -8,8 +8,9 @@ LINK_LIBRARIES(${PCL_LIBRARY_DIRS})
 # Graphic end
 
 ADD_LIBRARY(SLAM3d
-  GraphicEnd.cpp ParameterReader.cpp
+  GraphicEnd.cpp ParameterReader.cpp GraphicEnd2.cpp
 )
+
 TARGET_LINK_LIBRARIES( SLAM3d
   ${OpenCV_LIBS} g2o_core pthread ${PCL_LIBRARIES} g2o_types_slam3d g2o_solver_csparse g2o_stuff g2o_csparse_extension ${CSPARSE_LIBRARY} yaml-cpp
   )
@@ -28,3 +29,5 @@ TARGET_LINK_LIBRARIES( generateTrajectory SLAM3d )
 ADD_EXECUTABLE( viewLC viewLC.cpp )
 TARGET_LINK_LIBRARIES( viewLC SLAM3d )
 
+ADD_EXECUTABLE( run_SLAM_imageonly run_SLAM_imageonly.cpp )
+TARGET_LINK_LIBRARIES( run_SLAM_imageonly SLAM3d)

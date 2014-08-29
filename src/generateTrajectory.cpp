@@ -49,6 +49,8 @@ int main(int argc, char** argv)
         fin>>id>>frame;
         //位置
         VertexSE3* pv = dynamic_cast<VertexSE3*> (opt.vertex( id) );
+        if (pv == NULL)
+            continue;
         double data[7];
         pv->getEstimateData( data );
         for (int i=0; i<7; i++)

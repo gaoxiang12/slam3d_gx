@@ -144,7 +144,6 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
     v->setFixed( true );
     opt.addVertex( v );
     _index ++;
-
     cout<<"********************"<<endl;
 }
 
@@ -224,6 +223,7 @@ int GraphicEnd::readimage()
     _currDep = imread(ss.str(), -1);
     ss.str("");
     ss.clear();
+    
     ss<<_pclPath<<_index<<".pcd";
     pcl::io::loadPCDFile(ss.str(), *_currCloud);
     static pcl::PassThrough<PointT> pass;
@@ -233,11 +233,11 @@ int GraphicEnd::readimage()
     PointCloud::Ptr tmp( new PointCloud() );
     pass.setInputCloud(_currCloud);
     pass.filter( *tmp );
-
-    _currCloud->swap( *tmp );
     
+    _currCloud->swap( *tmp );
     ss.str("");
     ss.clear();
+    
     cout<<"load ok."<<endl;
     return 0;
 }
@@ -297,6 +297,7 @@ void GraphicEnd::generateKeyFrame( Eigen::Isometry3d T )
         opt.addEdge( edge );
         _odo_last = _odo_this;
     }
+    
 }
 
 vector<PLANE> GraphicEnd::extractPlanes( PointCloud::Ptr cloud)
@@ -609,7 +610,7 @@ RESULT_OF_MULTIPNP GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& p
     Eigen::Isometry3d T = Isometry3d::Identity();
     double normofTransform = min(norm(rvec), 2*M_PI-norm(rvec)) + norm(tvec);
     cout<<RED<<"norm of Transform = "<<normofTransform<<RESET<<endl;
-    result.norm = abs(normofTransform );
+    result.norm = fabs(normofTransform );
     if (normofTransform > _error_threshold)
     {
         return result;
@@ -626,6 +627,9 @@ RESULT_OF_MULTIPNP GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& p
     T(0,3) = tvec.at<double> (0,0); T(1,3) = tvec.at<double>(0,1); T(2,3) = tvec.at<double>(0,2);
     result.T = T;
     result.inliers = inliers.rows;
+
+    //if (loopclosure)
+    //waitKey(0);
     return result;
 }
 
@@ -671,7 +675,7 @@ void GraphicEnd::loopClosure()
     SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
 
     //相邻帧
-    for (int i=-2; i>-5; i--)
+    for (int i=-3; i>-5; i--)
     {
         int n = _keyframes.size() + i;
         if (n>=0)
@@ -778,7 +782,10 @@ void GraphicEnd::lostRecovery()
     //顶点
     VertexSE3* v = new VertexSE3();
     v->setId( _currKF.id );
-    v->setEstimate( Eigen::Isometry3d::Identity() );
+    if (_use_odometry)
+        v->setEstimate( _odo_this );
+    else
+        v->setEstimate( Eigen::Isometry3d::Identity() );
     opt.addVertex( v );
 
     //由于当前位置不知道,所以不添加与上一帧相关的边

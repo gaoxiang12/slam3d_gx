@@ -59,7 +59,10 @@ int main( int argc, char ** argv)
 
         VertexSE3* pv = dynamic_cast<VertexSE3*> (opt.vertex( id ));
         if (pv == NULL)
-            break;
+        {
+            cout<<"cannot find vertex: "<<id<<endl;
+            continue;
+        }
         Eigen::Isometry3d pos = pv->estimate();
         /*
         Eigen::Vector3d rpy = pos.rotation().eulerAngles(0, 1, 2);

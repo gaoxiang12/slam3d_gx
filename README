@@ -1,17 +1,24 @@
 SLAM3d_gx
 Author: xiang gao
-Last update date: 6.24.2014
+
+Last update date: 8.29.2014
+
+Updates:
+
+2014.8.29
+1.	There is a "prepare.sh" in ./tools directory which allow you transmit rgb and depth data directly.
+2.	The planar feature is still under test. It's computational cost is too high to meet real-time requirements. It needs pcd data prepared before you run bin/run_SLAM. So I writed another executable file in "bin/run_SLAM_imageonly" which only relies on image files other than pointclouds. However, this program may fail due to featureless occassions so use it carefully. Results will be more accurate if odometry data is provided.
+
 
 This is a 3D visual SLAM written by xiang gao. It uses Kinect data, i.e. 
-rgb and depth images to construct a map of the robot's environment and compute
-trajectory of the robot itself. The code is experimental and will be updated commonly.
+rgb and depth images to construct a map of the robot's environment and compute trajectory of the robot itself. The code is experimental and will be updated commonly.
+
 If you have any problem please contact me:
 
 	gaoxiang12@mails.tsinghua.edu.cn
 
 Note:
-1.	In order to have the code compiled successfully, you must have the following
-	preliminary software installed in your pc.
+1.	In order to have the code compiled successfully, you must have the following preliminary software installed in your pc.
 	
 	OpenCV		-http://www.opencv.org/
 	PCL		-http://www.pointclouds.org/

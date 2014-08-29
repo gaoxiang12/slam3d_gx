@@ -75,18 +75,18 @@ class GraphicEnd
     GraphicEnd();
     ~GraphicEnd();
 
-    void init(SLAMEnd* _pSLAMEnd);
+    virtual void init(SLAMEnd* _pSLAMEnd);
 
-    int run();
+    virtual int run();
 
-    int readimage();
+    virtual int readimage();
     int process();
 
     //将present作为一个新的关键帧，传入current到present的变换矩阵
-    void generateKeyFrame( Eigen::Isometry3d T );
+    virtual void generateKeyFrame( Eigen::Isometry3d T );
 
     //输出最后点云结果
-    void saveFinalResult( string fileaddr );
+    virtual void saveFinalResult( string fileaddr );
     //internal
 
     vector<PLANE> extractPlanes( PointCloud::Ptr cloud ); //从点云提取一组平面
@@ -110,7 +110,7 @@ class GraphicEnd
     }
 
     //确定平面上的关键点在空间的坐标
-    void compute3dPosition( PLANE& plane, Mat depth);
+    virtual void compute3dPosition( PLANE& plane, Mat depth);
 
     //匹配两组平面，以法向量为特征
     vector<DMatch> match( vector<PLANE>& p1, vector<PLANE>& p2);
@@ -122,7 +122,7 @@ class GraphicEnd
     vector<DMatch> pnp( PLANE& p1, PLANE& p2 ); 
 
     //求解两组平面间的多PnP问题，算法将调用SLAM端构造局部子图
-    RESULT_OF_MULTIPNP multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2, bool loopclosure = false, int frame_index = 0, int minimum_inliers = 12);
+    virtual RESULT_OF_MULTIPNP multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2, bool loopclosure = false, int frame_index = 0, int minimum_inliers = 12);
 
     //闭环检测
     void loopClosure();
@@ -237,7 +237,25 @@ class SLAMEnd
  public:
     GraphicEnd* _pGraphicEnd;
     SparseOptimizer globalOptimizer;
-    //OptimizationAlgorithmGaussNewton* solver;
     OptimizationAlgorithmLevenberg* solver;
     RobustKernel* _robustKernel;
+};
+
+/*****************************************
+ * Graphic End 2: only use image features without planes
+ ****************************************/
+
+class GraphicEnd2: public GraphicEnd
+{
+ public:
+    GraphicEnd2();
+    ~GraphicEnd2();
+
+ public:
+    virtual int readimage();
+    virtual void init( SLAMEnd* pSLAMEnd);
+    virtual int run();
+    void compute3dPosition( PLANE& plane, Mat depth);
+    PLANE extractKPandDesp( Mat& rgb, Mat& dep);
+    virtual RESULT_OF_MULTIPNP multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2, bool loopclosure = false, int frame_index = 0, int minimum_inliers = 12);
 };

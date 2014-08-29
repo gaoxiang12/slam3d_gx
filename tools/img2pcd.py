@@ -96,8 +96,9 @@ end_header
     file.close()
 
 if __name__ == '__main__':
+    for p,d,f in os.walk('./rgb/'):
+        end = len(f)
     start = 1
-    end = 3600
     for index in range( start, end ):
         rgb = './rgb_index/'+str(index)+".png"
         dep = "./dep_index/"+str(index)+".png"
