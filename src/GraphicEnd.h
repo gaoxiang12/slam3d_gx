@@ -90,6 +90,8 @@ class GraphicEnd
     //internal
 
     vector<PLANE> extractPlanes( PointCloud::Ptr cloud ); //从点云提取一组平面
+
+    vector<PLANE> extractPlanesAndGenerateImage( PointCloud::Ptr cloud, Mat& rgb, Mat& dep ); //提取平面并成生灰度图像
     
     void generateImageOnPlane( Mat rgb, vector<PLANE>& planes, Mat depth); //根据深度信息生成平面上的灰度图像
 
@@ -97,6 +99,7 @@ class GraphicEnd
     vector<KeyPoint> extractKeypoints(Mat image)        
     {
         vector<KeyPoint> kp;
+        //FAST( image, kp, 10 );
         _detector->detect(image, kp);
         return kp;
     }

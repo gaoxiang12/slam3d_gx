@@ -124,8 +124,12 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
     _lastRGB = _currRGB.clone();
     _currKF.id = 0;
     _currKF.frame_index = _index;
+    /*
     _currKF.planes = extractPlanes( _currCloud ); //抓平面
     generateImageOnPlane( _currRGB, _currKF.planes, _currDep);
+    */
+
+    _currKF.planes = extractPlanesAndGenerateImage( _currCloud, _currRGB, _currDep );
     for ( size_t i=0; i<_currKF.planes.size(); i++ )
     {
         _currKF.planes[i].kp = extractKeypoints(_currKF.planes[i].image);
@@ -156,8 +160,9 @@ int GraphicEnd::run()
     readimage();
     
     //处理present
-    _present.planes = extractPlanes( _currCloud );
-    generateImageOnPlane( _currRGB, _present.planes, _currDep );
+    _present.planes = extractPlanesAndGenerateImage( _currCloud, _currRGB, _currDep );
+    //_present.planes = extractPlanes( _currCloud );
+    //generateImageOnPlane( _currRGB, _present.planes, _currDep );
 
     for ( size_t i=0; i<_present.planes.size(); i++ )
     {
@@ -358,6 +363,88 @@ vector<PLANE> GraphicEnd::extractPlanes( PointCloud::Ptr cloud)
     return planes;
 }
 
+vector<PLANE> GraphicEnd::extractPlanesAndGenerateImage( PointCloud::Ptr cloud, Mat& rgb, Mat& dep)
+{
+    cout<<"extracting planes"<<endl;
+    vector<PLANE> planes;
+    pcl::ModelCoefficients::Ptr coefficients( new pcl::ModelCoefficients() );
+    pcl::PointIndices::Ptr inliers(new pcl::PointIndices ); 
+
+    pcl::SACSegmentation<PointT> seg;
+    seg.setOptimizeCoefficients( true );
+    seg.setModelType( pcl::SACMODEL_PLANE );
+    seg.setMethodType( pcl::SAC_RANSAC );
+    seg.setDistanceThreshold( _distance_threshold );
+
+    int n = cloud->points.size();
+    int i=0;
+
+    PointCloud::Ptr tmp (new PointCloud()); //储存剩下的数据
+    pcl::copyPointCloud(*cloud, *tmp);
+
+    while( tmp->points.size() > _percent*n )
+    {
+        seg.setInputCloud(tmp);
+        seg.segment( *inliers, *coefficients );
+        if (inliers->indices.size() == 0) //没有剩余的平面
+        {
+            break;
+        }
+        PLANE p;
+        p.coff = *coefficients;
+        
+        if ( coefficients->values[3] < 0)  //归一化
+        {
+            for (int i=0; i<4; i++)
+                p.coff.values[i] = -p.coff.values[i];
+        }
+        
+        cout<<"Coff: "<<p.coff.values[0]<<","<<p.coff.values[1]<<","<<p.coff.values[2]<<","<<p.coff.values[3]<<endl;
+        pcl::ExtractIndices<PointT> extract;
+        PointCloud::Ptr plane_cloud( new PointCloud());
+
+        extract.setInputCloud( tmp );
+        extract.setIndices( inliers );
+        extract.setNegative( false );
+        extract.filter( *plane_cloud ); //把选中的点滤出
+        p.image = Mat( 480, 640, CV_8UC1, Scalar::all(0));
+
+        cout<<"plane "<<i<<" inlier size = "<<plane_cloud->points.size()<<endl;
+        int block = 4;
+        for (size_t j=0; j<plane_cloud->points.size(); j++)
+        {
+            //生成该平面对应的图像
+            PointT pt = plane_cloud->points[j];
+            int u = round( pt.x*camera_fx/pt.z + camera_cx );
+            int v = round( pt.y*camera_fy/pt.z + camera_cy );
+            for (int k=-block; k<block+1; k++)
+                for (int l=-block; l<block+1; l++)
+                {
+                    if (v+k < 0 || v+k>=480 || u+l<0 || u+l >=640)
+                        continue;
+                    p.image.ptr(v+k)[u+l] = rgb.ptr(v+k)[u+l];
+                }
+            //p.image.ptr(v) [u] = rgb.ptr(v)[u];
+        }
+
+        equalizeHist( p.image, p.image);
+        //imshow( "image from pointcloud", p.image);
+        //waitKey(0);
+        
+        extract.setNegative( true );
+        extract.filter( *tmp ); //把没有被选中的点滤出
+        i++;
+        planes.push_back(p);
+
+        if (i == _max_planes)
+            break;
+    }
+
+    cout<<"Total planes: "<<i<<endl;
+    return planes;
+}
+
+
 void GraphicEnd::generateImageOnPlane( Mat rgb, vector<PLANE>& planes, Mat depth)
 {
     cout<<"GraphicEnd::generateImageOnPlane"<<endl;
@@ -465,6 +552,26 @@ vector<DMatch> GraphicEnd::match( vector<PLANE>& p1, vector<PLANE>& p2 )
     matcher.match( des1, des2, matches);
 
     return matches;
+    double max_dist = 0, min_dist = 100;
+
+    for (int i=0; i<des1.rows; i++)
+    {
+        double dist = matches[ i ].distance;
+        if (dist < min_dist)
+            min_dist = dist;
+        if (dist > max_dist)
+            max_dist = dist;
+    }
+
+    vector<DMatch> good_matches;
+    for (size_t i=0; i<matches.size(); i++)
+    {
+        if (matches[ i ].distance <= 3*min_dist)
+        {
+            good_matches.push_back(matches[ i ]);
+        }
+    }
+    return good_matches;
 }
 
 vector<DMatch> GraphicEnd::match( Mat desp1, Mat desp2 )

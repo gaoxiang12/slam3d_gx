@@ -92,7 +92,7 @@ class GRAPHIC_END_NEED_GLOBAL_OPTIMIZATION : public EXCEPTION
     }
 };
 
-//the following are UBUNTU/LINUX ONLY terminal color codes.
+//the following are UBUNTU/LINUX ONLY terminal color
 #define RESET "\033[0m"
 #define BLACK "\033[30m" /* Black */
 #define RED "\033[31m" /* Red */

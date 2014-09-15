@@ -31,3 +31,11 @@ TARGET_LINK_LIBRARIES( viewLC SLAM3d )
 
 ADD_EXECUTABLE( run_SLAM_imageonly run_SLAM_imageonly.cpp )
 TARGET_LINK_LIBRARIES( run_SLAM_imageonly SLAM3d)
+
+ADD_EXECUTABLE( planarFeatures planarFeatures.cpp )
+TARGET_LINK_LIBRARIES( planarFeatures SLAM3d)
+
+ADD_EXECUTABLE( convert2PCD convert2PCD.cpp )
+TARGET_LINK_LIBRARIES( convert2PCD SLAM3d)
+
+ADD_SUBDIRECTORY( ./exp1 )

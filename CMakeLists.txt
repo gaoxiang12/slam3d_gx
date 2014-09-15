@@ -55,7 +55,7 @@ ELSE(CSPARSE_FOUND)
 ENDIF(CSPARSE_FOUND)
 
 # PCL
-find_package(PCL 1.4 REQUIRED)
+find_package(PCL 1.4 REQUIRED COMPONENTS common io filters registration sample_consensus segmentation )
 IF(PCL_FOUND)
 	MESSAGE(STATUS "PCL found in " ${PCL_INCLUDE_DIRS})
 ELSE(PCL_FOUND)
