@@ -11,17 +11,17 @@ if __name__=='__main__':
     y = []
     for line in trajectory:
         data = line.split()
-        x.append( string.atof(data[0]) )
-        y.append( string.atof(data[2]) )
+        x.append( string.atof(data[1]) )
+        y.append( string.atof(data[3]) )
     plt.plot( x, y, 'ro-' )
     x = []
     y = []
+    Fig.savefig("trajectory.pdf")
+    Fig = plt.figure(2)
     odo = file('odometry.txt')
     for line in odo:
         data = line.split()
         x.append( -string.atof(data[2]))
         y.append( string.atof(data[1]))
     plt.plot( x, y, 'b--')
-    plt.legend(["estimated", "odometry"])
-    plt.show()
-    Fig.savefig("trajectory.pdf")
+    Fig.savefig("odometry.pdf")

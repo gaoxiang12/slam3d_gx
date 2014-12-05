@@ -105,6 +105,9 @@ void GraphicEnd2::init( SLAMEnd* pSLAMEnd)
     _use_odometry = g_pParaReader->GetPara("use_odometry") == string("yes");
     _error_odometry = atof( g_pParaReader->GetPara("error_odometry").c_str() );
     _robot2camera = AngleAxisd(-0.5*M_PI, Vector3d::UnitY()) * AngleAxisd(0.5*M_PI, Vector3d::UnitX());
+    _loop_closure_inliers = atoi( g_pParaReader->GetPara("loop_closure_inliers").c_str() );
+    _z_filter = atof( g_pParaReader->GetPara("z_filter").c_str());
+    
     if (_use_odometry)
     {
         cout<<"using odometry"<<endl;
@@ -145,6 +148,7 @@ void GraphicEnd2::init( SLAMEnd* pSLAMEnd)
 
 int GraphicEnd2::run()
 {
+    static ofstream errorfile("./data/error_of_transform.log");
     cout<<"********************"<<endl;
     _present.planes.clear();
 
@@ -156,12 +160,14 @@ int GraphicEnd2::run()
 
     if (T.matrix() == Eigen::Isometry3d::Identity().matrix())
     {
+        errorfile<<"9999"<<endl;
         //匹配失败
         cout<<BOLDRED"This frame is lost"<<RESET<<endl;
         _lost++;
     }
     else if (result.norm > _max_pos_change)
     {
+        errorfile<<result.norm<<endl;
         //生成新关键帧
         _robot = T*_kf_pos;
         generateKeyFrame(T);
@@ -171,6 +177,7 @@ int GraphicEnd2::run()
     }
     else
     {
+        errorfile<<result.norm<<endl;
         //位置变化小
         _robot = T*_kf_pos;
         _lost = 0;
@@ -282,7 +289,7 @@ RESULT_OF_MULTIPNP GraphicEnd2::multiPnP(  vector<PLANE>& plane1, vector<PLANE>&
     }
     
     Eigen::Isometry3d T = Isometry3d::Identity();
-    double normofTransform = min(norm(rvec), 2*M_PI-norm(rvec)) + norm(tvec);
+    double normofTransform = fabs(min(norm(rvec), 2*M_PI-norm(rvec)) + norm(tvec));
     cout<<RED<<"norm of Transform = "<<normofTransform<<RESET<<endl;
     result.norm = fabs(normofTransform );
     if (normofTransform > _error_threshold)

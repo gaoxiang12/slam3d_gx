@@ -61,10 +61,19 @@ ParameterReader::ParameterReader(const string& para_file )
     config[ "lost_frames" ] >> _lost_frames;
     config[ "use_odometry" ] >> _use_odometry;
     config[ "error_odometry" ] >> _error_odometry;
+    config["ransac_accuracy"]>>_ransac_accuracy;
+    config["loop_closure_inliers"]>>_loop_closure_inliers;
+    config["z_filter"] >> _z_filter;
 }
 
 string ParameterReader::GetPara( const string& para_name )
 {
+    if (para_name == string("z_filter"))
+        return num2string(_z_filter);
+    if (para_name == string("loop_closure_inliers"))
+        return num2string(_loop_closure_inliers);
+    if (para_name == string("ransac_accuracy"))
+        return num2string(_ransac_accuracy);
     if (para_name == string("detector_name"))
         return _detector_name;
     if (para_name == string("descriptor_name"))

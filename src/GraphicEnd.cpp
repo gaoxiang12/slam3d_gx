@@ -8,7 +8,6 @@
 #include "GraphicEnd.h"
 #include "ParameterReader.h"
 #include "const.h"
-
 //CV
 #include <opencv2/nonfree/nonfree.hpp>
 #include <opencv2/highgui/highgui.hpp>
@@ -78,7 +77,7 @@ GraphicEnd::~GraphicEnd()
 void GraphicEnd::init(SLAMEnd* pSLAMEnd)
 {
     cout<<"Graphic end init..."<<endl;
-
+               
     _pSLAMEnd = pSLAMEnd;
     _index = atoi( g_pParaReader->GetPara("start_index").c_str() );
     _rgbPath = g_pParaReader->GetPara("data_source")+string("/rgb_index/");
@@ -97,11 +96,12 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
     _loopclosure_frames = atoi( g_pParaReader->GetPara("loopclosure_frames").c_str() );
     _loop_closure_detection = (g_pParaReader->GetPara("loop_closure_detection") == string("yes"))?true:false;
     _loop_closure_error = atof(g_pParaReader->GetPara("loop_closure_error").c_str());
+    _loop_closure_inliers = atoi( g_pParaReader->GetPara("loop_closure_inliers").c_str());
     _lost_frames = atoi( g_pParaReader->GetPara("lost_frames").c_str() );
     _robot = _kf_pos = Eigen::Isometry3d::Identity();
     _use_odometry = g_pParaReader->GetPara("use_odometry") == string("yes");
     _error_odometry = atof( g_pParaReader->GetPara("error_odometry").c_str() );
-    _robot2camera = AngleAxisd(-0.5*M_PI, Vector3d::UnitY()) * AngleAxisd(0.5*M_PI, Vector3d::UnitX());
+    _z_filter = atof( g_pParaReader->GetPara("z_filter").c_str());
     if (_use_odometry)
     {
         cout<<"using odometry"<<endl;
@@ -124,15 +124,11 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
     _lastRGB = _currRGB.clone();
     _currKF.id = 0;
     _currKF.frame_index = _index;
-    /*
-    _currKF.planes = extractPlanes( _currCloud ); //抓平面
-    generateImageOnPlane( _currRGB, _currKF.planes, _currDep);
-    */
 
     _currKF.planes = extractPlanesAndGenerateImage( _currCloud, _currRGB, _currDep );
     for ( size_t i=0; i<_currKF.planes.size(); i++ )
     {
-        _currKF.planes[i].kp = extractKeypoints(_currKF.planes[i].image);
+        _currKF.planes[i].kp = extractKeypoints(_currKF.planes[i].image, _currKF.planes[i].mask);
         _currKF.planes[i].desp = extractDescriptor( _currRGB, _currKF.planes[i].kp );
         compute3dPosition( _currKF.planes[i], _currDep );
     }
@@ -154,19 +150,16 @@ void GraphicEnd::init(SLAMEnd* pSLAMEnd)
 int GraphicEnd::run()
 {
     //清空present并读取新的数据
+    static ofstream errorfile("./data/error_of_transform.log");
     cout<<"********************"<<endl;
     _present.planes.clear();
-    
     readimage();
-    
     //处理present
     _present.planes = extractPlanesAndGenerateImage( _currCloud, _currRGB, _currDep );
-    //_present.planes = extractPlanes( _currCloud );
-    //generateImageOnPlane( _currRGB, _present.planes, _currDep );
-
+    
     for ( size_t i=0; i<_present.planes.size(); i++ )
     {
-        _present.planes[i].kp = extractKeypoints( _present.planes[i].image );
+        _present.planes[i].kp = extractKeypoints( _present.planes[i].image, _present.planes[i].mask );
         _present.planes[i].desp = extractDescriptor( _currRGB, _present.planes[i].kp );
         compute3dPosition( _present.planes[i], _currDep);
     }
@@ -180,38 +173,93 @@ int GraphicEnd::run()
     if ( T.matrix() == Eigen::Isometry3d::Identity().matrix() )
     {
         //未匹配上
-        cout<<BOLDRED"This frame lost"<<RESET<<endl;
-        _lost++;
+        errorfile<<"9999"<<endl;
+        if (_use_odometry)
+        {
+            _lost++;
+        }
+        else
+        {
+            cout<<BOLDRED"This frame lost"<<RESET<<endl;
+            //尝试匹配_present 和 _last
+            cout<<"Matching last and present."<<endl;
+            cout<<"last: "<<_last.frame_index<<endl;
+            RESULT_OF_MULTIPNP r = multiPnP( _last.planes, _present.planes );
+            if ( r.inliers<_loop_closure_inliers || r.norm > _loop_closure_error )
+                _lost++; //该帧失败,丢弃之
+            else
+            {
+                cout<<BOLDGREEN<<"add last as a new keyframe."<<endl;
+                //虽然该帧与上一个关键帧匹配不上，但与上一个普通帧对上了。应该给它一个机会。
+                _lost = 0;
+                RESULT_OF_MULTIPNP rr = multiPnP( _currKF.planes, _last.planes );
+                //将上一个普通帧作为关键帧,存入图中
+                _currKF.id ++;
+                _currKF.planes = _last.planes;
+                _currKF.frame_index = _index-1;
+                _keyframes.push_back(_currKF );
+            
+                //将current关键帧存储至全局优化器
+                SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
+                //顶点
+                VertexSE3* v = new VertexSE3();
+                v->setId( _currKF.id );
+                if (_use_odometry)
+                    v->setEstimate( _odo_this );
+                else
+                    v->setEstimate( Eigen::Isometry3d::Identity() );
+                opt.addVertex( v );
+                //边
+                EdgeSE3* edge = new EdgeSE3();
+                edge->vertices()[0] = opt.vertex( _currKF.id - 1 );
+                edge->vertices()[1] = opt.vertex( _currKF.id );
+                Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
+                information(0, 0) = information(2,2) = 100;
+                information(1, 1) = 100;
+                information(3,3) = information(4,4) = information(5,5) = 100; 
+                edge->setInformation( information );
+                edge->setMeasurement( rr.T.inverse() );
+                opt.addEdge( edge );
+
+                //然后，将present也作为新的关键帧
+                generateKeyFrame( r.T.inverse() );
+                _last = _present;
+            }
+        }
     }
     else if (result.norm > _max_pos_change)
     {
+        errorfile<<result.norm<<endl;
         //生成一个新的关键帧
         _robot = T * _kf_pos;
         generateKeyFrame(T);
         if (_loop_closure_detection == true)
             loopClosure();
         _lost = 0;
+        _last = _present;
     }
     else
     {
+        errorfile<<result.norm<<endl;
         //小变化，更新robot位置
         _robot = T * _kf_pos;
         _lost = 0;
+        _last = _present;
     }
     if (_lost > _lost_frames)
     {
         cerr<<"the robot lost. Perform lost recovery."<<endl;
         lostRecovery();
+        _last = _present;
     }
 
-
-    cout<<RED<<"key frame size = "<<_keyframes.size()<<RESET<<endl;
     _index ++;
     if (_use_odometry)
     {
         _odo_this = _odometry[ _index-1 ];
     }
 
+    _present.frame_index = _index;
     return 1;
 }
 
@@ -231,15 +279,21 @@ int GraphicEnd::readimage()
     
     ss<<_pclPath<<_index<<".pcd";
     pcl::io::loadPCDFile(ss.str(), *_currCloud);
+    
     static pcl::PassThrough<PointT> pass;
     pass.setFilterFieldName("z");
-    pass.setFilterLimits(0.0, 6.0);
+    pass.setFilterLimits(0.0, _z_filter);
+
+    static pcl::VoxelGrid<PointT> voxel;
+    double grid = atof(g_pParaReader->GetPara("grid_leaf").c_str());
+    voxel.setLeafSize( grid, grid, grid );
     
     PointCloud::Ptr tmp( new PointCloud() );
     pass.setInputCloud(_currCloud);
     pass.filter( *tmp );
-    
-    _currCloud->swap( *tmp );
+    voxel.setInputCloud( tmp );
+    voxel.filter(*_currCloud);
+
     ss.str("");
     ss.clear();
     
@@ -257,8 +311,6 @@ void GraphicEnd::generateKeyFrame( Eigen::Isometry3d T )
     _lastRGB = _currRGB.clone();
     _kf_pos = _robot;
 
-    cout<<"add key frame: "<<_currKF.id<<endl;
-    //waitKey(0);
     _keyframes.push_back( _currKF );
     
     //将current关键帧存储至全局优化器
@@ -266,10 +318,8 @@ void GraphicEnd::generateKeyFrame( Eigen::Isometry3d T )
     //顶点
     VertexSE3* v = new VertexSE3();
     v->setId( _currKF.id );
-    //v->setEstimate( _robot );
     if (_use_odometry)
         v->setEstimate( _odo_this );
-    //v->setEstimate( Eigen::Isometry3d::Identity() );
     else
         v->setEstimate( Eigen::Isometry3d::Identity() );
     opt.addVertex( v );
@@ -288,10 +338,6 @@ void GraphicEnd::generateKeyFrame( Eigen::Isometry3d T )
     if (_use_odometry)
     {
         Eigen::Isometry3d To = _odo_last.inverse()*_odo_this;
-        cout<<"odo last = "<<endl<<_odo_last.matrix()<<endl<<"odo this = "<<endl<<_odo_this.matrix()<<endl;
-        cout<<"To = "<<endl<<To.matrix()<<endl;
-        cout<<"Measurement = "<<endl<<T.matrix()<<endl;
-        //waitKey( 0 );
         EdgeSE3* edge = new EdgeSE3();
         edge->vertices()[0] = opt.vertex( _currKF.id - 1 );
         edge->vertices()[1] = opt.vertex( _currKF.id );
@@ -302,65 +348,6 @@ void GraphicEnd::generateKeyFrame( Eigen::Isometry3d T )
         opt.addEdge( edge );
         _odo_last = _odo_this;
     }
-    
-}
-
-vector<PLANE> GraphicEnd::extractPlanes( PointCloud::Ptr cloud)
-{
-    cout<<"extracting planes"<<endl;
-    vector<PLANE> planes;
-    pcl::ModelCoefficients::Ptr coefficients( new pcl::ModelCoefficients() );
-    pcl::PointIndices::Ptr inliers(new pcl::PointIndices );
-
-    pcl::SACSegmentation<PointT> seg;
-    seg.setOptimizeCoefficients( true );
-
-    seg.setModelType( pcl::SACMODEL_PLANE );
-    seg.setMethodType( pcl::SAC_RANSAC );
-    seg.setDistanceThreshold( _distance_threshold );
-
-    int n = cloud->points.size();
-    int i=0;
-
-    PointCloud::Ptr tmp (new PointCloud());
-    pcl::copyPointCloud(*cloud, *tmp);
-
-    while( tmp->points.size() > _percent*n )
-    {
-        seg.setInputCloud(tmp);
-        seg.segment( *inliers, *coefficients );
-        if (inliers->indices.size() == 0)
-        {
-            break;
-        }
-        PLANE p;
-        p.coff = *coefficients;
-        
-        if ( coefficients->values[3] < 0)
-        {
-            for (int i=0; i<4; i++)
-                p.coff.values[i] = -p.coff.values[i];
-        }
-        
-        planes.push_back(p);
-        cout<<"Coff: "<<p.coff.values[0]<<","<<p.coff.values[1]<<","<<p.coff.values[2]<<","<<p.coff.values[3]<<endl;
-        pcl::ExtractIndices<PointT> extract;
-        extract.setInputCloud( tmp );
-        extract.setIndices( inliers );
-
-        //PointCloud::Ptr inlier(new PointCloud);
-        
-        extract.setNegative( true );
-        
-        extract.filter( *tmp );
-        i++;
-
-        if (i == _max_planes)
-            break;
-    }
-
-    cout<<"Total planes: "<<i<<endl;
-    return planes;
 }
 
 vector<PLANE> GraphicEnd::extractPlanesAndGenerateImage( PointCloud::Ptr cloud, Mat& rgb, Mat& dep)
@@ -408,13 +395,14 @@ vector<PLANE> GraphicEnd::extractPlanesAndGenerateImage( PointCloud::Ptr cloud, 
         extract.setNegative( false );
         extract.filter( *plane_cloud ); //把选中的点滤出
         p.image = Mat( 480, 640, CV_8UC1, Scalar::all(0));
-
-        cout<<"plane "<<i<<" inlier size = "<<plane_cloud->points.size()<<endl;
+        p.mask = Mat( 480, 640, CV_8UC1, Scalar::all(0));
         int block = 4;
         for (size_t j=0; j<plane_cloud->points.size(); j++)
         {
             //生成该平面对应的图像
             PointT pt = plane_cloud->points[j];
+            block = int(-1.0*(pt.z)+10.0);
+            block = block>0?block:0;
             int u = round( pt.x*camera_fx/pt.z + camera_cx );
             int v = round( pt.y*camera_fy/pt.z + camera_cy );
             for (int k=-block; k<block+1; k++)
@@ -423,14 +411,11 @@ vector<PLANE> GraphicEnd::extractPlanesAndGenerateImage( PointCloud::Ptr cloud, 
                     if (v+k < 0 || v+k>=480 || u+l<0 || u+l >=640)
                         continue;
                     p.image.ptr(v+k)[u+l] = rgb.ptr(v+k)[u+l];
+                    p.mask.ptr(v+k)[u+l] = 1;
                 }
-            //p.image.ptr(v) [u] = rgb.ptr(v)[u];
         }
 
         equalizeHist( p.image, p.image);
-        //imshow( "image from pointcloud", p.image);
-        //waitKey(0);
-        
         extract.setNegative( true );
         extract.filter( *tmp ); //把没有被选中的点滤出
         i++;
@@ -445,69 +430,13 @@ vector<PLANE> GraphicEnd::extractPlanesAndGenerateImage( PointCloud::Ptr cloud, 
 }
 
 
-void GraphicEnd::generateImageOnPlane( Mat rgb, vector<PLANE>& planes, Mat depth)
-{
-    cout<<"GraphicEnd::generateImageOnPlane"<<endl;
-
-    int rows = rgb.rows;
-    int cols = rgb.cols;
-    for (size_t t = 0; t<planes.size(); t++)
-    {
-        planes[t].image = rgb.clone();
-    }
-
-    int m = rows;
-    int n = cols;
-    for (int j=0; j<m; j++)
-    {
-        uchar* data = rgb.ptr<uchar> (j); //行指针
-        ushort* depData = depth.ptr<ushort> (j);
-        for (int i=0; i<n; i++)
-        {
-            ushort d = depData[i];
-            if (d == 0)
-            {
-                for (size_t t=0; t<planes.size(); t++)
-                {
-                    planes[t].image.ptr<uchar> (j) [i] = 0;
-                }
-                continue;
-            }
-
-            double z = double(d)/camera_factor;
-            double x = ( i - camera_cx) * z / camera_fx;
-            double y = ( j - camera_cy) * z / camera_fy;
-
-            for (size_t t=0; t<planes.size(); t++)
-            {
-                pcl::ModelCoefficients coff = planes[t].coff;
-                double e = coff.values[0]*x + coff.values[1]*y + coff.values[2]*z + coff.values[3];
-                e*= e;
-                if (e > _min_error_plane)
-                {
-                    planes[t].image.ptr<uchar> (j) [i] = 0;
-                }
-            }
-        }
-    }
-
-    for (size_t t=0; t<planes.size(); t++)
-    {
-        Mat dst;
-        equalizeHist( planes[t].image, dst );
-        planes[t].image = dst.clone();
-        imshow("planes", planes[t].image);
-        waitKey(_step_time);
-    }
-}
-
 void GraphicEnd::compute3dPosition( PLANE& plane, Mat depth)
 {
     for (size_t i=0; i<plane.kp.size(); i++)
     {
         double u = plane.kp[i].pt.x, v = plane.kp[i].pt.y;
         unsigned short d = depth.at<unsigned short>(round(v), round(u));
-        //if (d == 0)
+        if (d == 0)
         {
             double
             a = plane.coff.values[0],
@@ -552,26 +481,6 @@ vector<DMatch> GraphicEnd::match( vector<PLANE>& p1, vector<PLANE>& p2 )
     matcher.match( des1, des2, matches);
 
     return matches;
-    double max_dist = 0, min_dist = 100;
-
-    for (int i=0; i<des1.rows; i++)
-    {
-        double dist = matches[ i ].distance;
-        if (dist < min_dist)
-            min_dist = dist;
-        if (dist > max_dist)
-            max_dist = dist;
-    }
-
-    vector<DMatch> good_matches;
-    for (size_t i=0; i<matches.size(); i++)
-    {
-        if (matches[ i ].distance <= 3*min_dist)
-        {
-            good_matches.push_back(matches[ i ]);
-        }
-    }
-    return good_matches;
 }
 
 vector<DMatch> GraphicEnd::match( Mat desp1, Mat desp2 )
@@ -601,18 +510,18 @@ vector<DMatch> GraphicEnd::match( Mat desp1, Mat desp2 )
     vector<DMatch> good_matches;
     for (size_t i=0; i<matches.size(); i++)
     {
-        if (matches[ i ].distance <= max(4*min_dist, _match_min_dist))
+        if (matches[ i ].distance <= 3*min_dist)
         {
             good_matches.push_back(matches[ i ]);
         }
     }
+    cout<<"good matches: "<<good_matches.size()<<endl;
     return good_matches;
 }
 
 vector<DMatch> GraphicEnd::pnp( PLANE& p1, PLANE& p2)
 {
     vector<DMatch> matches = match( p1.desp, p2.desp );
-    cout<<"good matches: "<<matches.size()<<endl;
     if (matches.size() == 0)
     {
         return vector<DMatch> ();
@@ -634,14 +543,13 @@ vector<DMatch> GraphicEnd::pnp( PLANE& p1, PLANE& p2)
     vector<DMatch> inlierMatches;
     for (int i=0; i<inliers.rows; i++)
         inlierMatches.push_back( matches[inliers.at<int>(i,0)] );
-    
-    cout<<"PnP inliers = "<<inliers.rows<<endl;
 
+    /*
     Mat image_matches;
-    drawMatches(p1.image, p1.kp, p2.image, p2.kp, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
-    imshow("match_of_planes", image_matches);
+    drawMatches( p1.image, p1.kp, p2.image, p2.kp, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
+    imshow("match of plane", image_matches);
     waitKey(_step_time);
-
+    */
     return inlierMatches;
 }
 
@@ -686,15 +594,35 @@ RESULT_OF_MULTIPNP GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& p
     Mat inliers;
     solvePnPRansac(obj, img, cameraMatrix, Mat(), rvec, tvec, false, 100, 8.0, 100, inliers);
 
+    cout<<"Multipnp inliers = "<<inliers.rows<<endl;
+    result.inliers = inliers.rows;
     if (inliers.rows < minimum_inliers )
         return result;
 
+    cout<<BOLDRED<<"ransac again!"<<RESET<<endl;
     vector<DMatch> inlierMatches;
     for (int i=0; i<inliers.rows; i++)
         inlierMatches.push_back( match_show[inliers.at<int>(i,0)] );
+
+    vector<Point3f> obj_new;
+    vector<Point2f> img_new;
+    for (size_t i=0; i<inlierMatches.size(); i++)
+    {
+        obj_new.push_back( obj[inlierMatches[i].queryIdx]);
+        img_new.push_back( img[inlierMatches[i].trainIdx] );
+    }
+    Mat inliers_new;
+    solvePnPRansac(obj_new, img_new, cameraMatrix, Mat(), rvec, tvec, true, 100, 3.0, 100, inliers_new);
     
-    cout<<CYAN<<"multiICP::inliers = "<<inliers.rows<<RESET<<endl;
-    cout<<"matches: "<<match_show.size()<<endl;
+    Eigen::Isometry3d T = Isometry3d::Identity();
+    double normofTransform = fabs(1.0*min(norm(rvec), 2*M_PI-norm(rvec)))+ 0.9*fabs(norm(tvec));
+    cout<<RED<<"norm of Transform = "<<normofTransform<<RESET<<endl;
+    result.norm = normofTransform;
+    if ( result.norm > _error_threshold)
+    {
+        return result;
+    }
+    
     if (loopclosure == false)
     {
         Mat image_matches;
@@ -707,21 +635,13 @@ RESULT_OF_MULTIPNP GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& p
         Mat image_matches;
         stringstream ss;
         ss<<_rgbPath<<frame_index<<".png";
-        
         Mat rgb = imread( ss.str(), 0);
         drawMatches( rgb, kp1, _currRGB, kp2, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
         imshow("match", image_matches);
         waitKey(_step_time);
     }
     
-    Eigen::Isometry3d T = Isometry3d::Identity();
-    double normofTransform = min(norm(rvec), 2*M_PI-norm(rvec)) + norm(tvec);
-    cout<<RED<<"norm of Transform = "<<normofTransform<<RESET<<endl;
-    result.norm = fabs(normofTransform );
-    if (normofTransform > _error_threshold)
-    {
-        return result;
-    }
+
     // 旋转向量转换成旋转矩阵
     Mat R;
     Rodrigues( rvec, R );
@@ -735,13 +655,13 @@ RESULT_OF_MULTIPNP GraphicEnd::multiPnP( vector<PLANE>& plane1, vector<PLANE>& p
     result.T = T;
     result.inliers = inliers.rows;
 
-    //if (loopclosure)
-    //waitKey(0);
     return result;
 }
 
 void GraphicEnd::saveFinalResult( string fileaddr )
 {
+    //补充闭环
+    findMoreLoops();
     // g2o进行全局优化
     cout<<"saving final result"<<endl;
     SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
@@ -749,14 +669,7 @@ void GraphicEnd::saveFinalResult( string fileaddr )
     opt.initializeOptimization();
     opt.optimize( atoi(g_pParaReader->GetPara("optimize_step").c_str() ) );
 
-    // 拼合所有关键帧
-    PointCloud::Ptr output(new PointCloud());
-    PointCloud::Ptr curr( new PointCloud());
     stringstream ss;
-    pcl::VoxelGrid<PointT> voxel;
-    double grid_leaf = atof(g_pParaReader->GetPara("grid_leaf").c_str() );
-    voxel.setLeafSize( grid_leaf, grid_leaf, grid_leaf );
-
     ofstream fout("./data/keyframe.txt");
     
     for (size_t i=0; i<_keyframes.size(); i++)
@@ -764,9 +677,6 @@ void GraphicEnd::saveFinalResult( string fileaddr )
         cout<<"keyframe "<<i<<" id = "<<_keyframes[i].id<<endl;
         fout<<_keyframes[i].id<<" "<<_keyframes[i].frame_index<<endl;
     }
-    //存储点云
-    //pcl::io::savePCDFile( fileaddr, *output );
-    //cout<<"final result is saved at "<<fileaddr<<endl;
     opt.save("./data/final_after.g2o");
     fout.close();
 }
@@ -777,7 +687,6 @@ void GraphicEnd::loopClosure()
     if (_keyframes.size() <= 3 )  //小于3时，回环没有意义
         return;
     cout<<"Checking loop closure."<<endl;
-    waitKey(10);
     vector<int> checked;
     SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
 
@@ -788,8 +697,14 @@ void GraphicEnd::loopClosure()
         if (n>=0)
         {
             vector<PLANE>& p1 = _keyframes[n].planes;
-            Eigen::Isometry3d T = multiPnP( p1, _currKF.planes ).T;
+            RESULT_OF_MULTIPNP result = multiPnP( p1,
+                                                  _currKF.planes, true, _keyframes[n].frame_index, _loop_closure_inliers );
+            Eigen::Isometry3d T = result.T;
             if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
+                continue;
+            if ( result.norm > _loop_closure_error )
+                continue;
+            if (result.inliers < _loop_closure_inliers)
                 continue;
             T = T.inverse();
             //若匹配上，则在两个帧之间加一条边
@@ -808,31 +723,6 @@ void GraphicEnd::loopClosure()
         else
             break;
     }
-    //搜索种子帧
-    cout<<"checking seeds, seed.size()"<<_seed.size()<<endl;
-    vector<int> newseed;
-    for (size_t i=0; i<_seed.size(); i++)
-    {
-        vector<PLANE>& p1 = _keyframes[_seed[i]].planes;
-        Eigen::Isometry3d T = multiPnP( p1, _currKF.planes ).T;
-        if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
-            continue;
-        T = T.inverse();
-        //若匹配上，则在两个帧之间加一条边
-        checked.push_back( _seed[i] );
-        newseed.push_back( _seed[i] );
-        EdgeSE3* edge = new EdgeSE3();
-        edge->vertices() [0] = opt.vertex( _keyframes[_seed[i]].id );
-        edge->vertices() [1] = opt.vertex( _currKF.id );
-        Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
-        information(0, 0) = information(2,2) = 100; 
-        information(1,1) = 100;
-        information(3,3) = information(4,4) = information(5,5) = 100; 
-        edge->setInformation( information );
-        edge->setMeasurement( T );
-        edge->setRobustKernel( _pSLAMEnd->_robustKernel );
-        opt.addEdge( edge );
-    }
 
     //随机搜索
     cout<<"checking random frames"<<endl;
@@ -843,16 +733,18 @@ void GraphicEnd::loopClosure()
             continue;
         checked.push_back( frame );
         vector<PLANE>& p1 = _keyframes[frame].planes;
-        RESULT_OF_MULTIPNP result = multiPnP( p1, _currKF.planes, true, _keyframes[frame].frame_index, 20 );
+        RESULT_OF_MULTIPNP result = multiPnP( p1, _currKF.planes, true, _keyframes[frame].frame_index, _loop_closure_inliers );
         Eigen::Isometry3d T = result.T;
         
-        if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
+        if ( T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
+            continue;
+        if ( result.norm > _loop_closure_error )
+            continue;
+        if (result.inliers < _loop_closure_inliers)
             continue;
         T = T.inverse();
-        displayLC( _keyframes[frame].frame_index, _currKF.frame_index, result.norm);
-        newseed.push_back( frame );
+        displayLC( _keyframes[frame].frame_index, _currKF.frame_index, result.norm, result.inliers);
         //若匹配上，则在两个帧之间加一条边
-        cout<<BOLDBLUE<<"find a loop closure between kf "<<_currKF.id<<" and kf "<<frame<<RESET<<endl;
         EdgeSE3* edge = new EdgeSE3();
         edge->vertices() [0] = opt.vertex( _keyframes[frame].id );
         edge->vertices() [1] = opt.vertex( _currKF.id );
@@ -864,10 +756,9 @@ void GraphicEnd::loopClosure()
         edge->setMeasurement( T );
         edge->setRobustKernel( _pSLAMEnd->_robustKernel );
         opt.addEdge( edge );
-    }
 
-    waitKey(10);
-    _seed = newseed;
+        _keyframes.back().connect.push_back( frame );
+    }
 }
 
 void GraphicEnd::lostRecovery()
@@ -881,7 +772,10 @@ void GraphicEnd::lostRecovery()
     _lastRGB = _currRGB.clone();
     _kf_pos = _robot;
 
-    //waitKey(0);
+    ofstream fout("./data/lost.txt", ofstream::app);
+    fout<<_currKF.id<<" "<<_currKF.frame_index<<endl;
+    fout.close();
+    
     _keyframes.push_back( _currKF );
     
     //将current关键帧存储至全局优化器
@@ -896,6 +790,7 @@ void GraphicEnd::lostRecovery()
     opt.addVertex( v );
 
     //由于当前位置不知道,所以不添加与上一帧相关的边
+    //有里程计的时候，以里程计的读数为准
     if (_use_odometry)
     {
         Eigen::Isometry3d To = _odo_last.inverse()*_odo_this;
@@ -915,9 +810,14 @@ void GraphicEnd::lostRecovery()
     for (int i=0; i<_keyframes.size() - 1; i++)
     {
         vector<PLANE>& p1 = _keyframes[ i ].planes;
-        Eigen::Isometry3d T = multiPnP( p1, _currKF.planes ).T;
+        RESULT_OF_MULTIPNP result = multiPnP( p1, _currKF.planes );
+        Eigen::Isometry3d T = result.T;
         
         if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
+            continue;
+        if (result.inliers < _loop_closure_inliers )
+            continue;
+        if ( result.norm > _loop_closure_error )
             continue;
         T = T.inverse();
         //若匹配上，则在两个帧之间加一条边
@@ -931,11 +831,13 @@ void GraphicEnd::lostRecovery()
         edge->setMeasurement( T );
         edge->setRobustKernel( _pSLAMEnd->_robustKernel );
         opt.addEdge( edge );
+
+        _keyframes.back().connect.push_back( i );
     }
     
 }
 
-void GraphicEnd::displayLC( int frame1, int frame2, double norm)
+void GraphicEnd::displayLC( int frame1, int frame2, double norm, int inliers)
 {
     static ofstream fout("./data/lc.txt");
     
@@ -955,7 +857,91 @@ void GraphicEnd::displayLC( int frame1, int frame2, double norm)
 
     imshow("loopClosure_1", rgb1);
     imshow("loopClosure_2", rgb2);
-    waitKey(10);
 
-    fout<<frame1<<" "<<frame2<<" "<<norm<<endl;
+    fout<<frame1<<" "<<frame2<<" "<<norm<<" "<<inliers<<endl;
+}
+
+void GraphicEnd::findMoreLoops( )
+{
+    cout<<"Find more loops"<<endl;
+    _moreLoops = 0;
+    for (size_t i=0; i<_keyframes.size(); i++)
+    {
+        if (_keyframes[i].connect.size() == 0)
+            continue;
+        vector<int> checked; //检测出连上的之前的帧
+        for (size_t j=0; j<_keyframes[i].connect.size(); j++)
+        {
+            //检测这个关键帧与connect之前与之后的帧的关系
+            checked = checknearby( i, _keyframes[i].connect[j] );
+            //然后检测这些帧与关键帧附近帧的关系
+            for (size_t k=0; k<checked.size(); k++)
+            {
+                checknearby( checked[k], i );
+            }
+        }
+    }
+    cout<<BOLDRED<<"Total "<<_moreLoops<<" loops found. "<<RESET<<endl;
+}
+
+bool GraphicEnd::check( int frame1, int frame2 )
+{
+    cout<<YELLOW<<"checking "<<frame1<<", "<<frame2<<RESET<<endl;
+    vector<PLANE>& p1 = _keyframes[frame1].planes;
+    vector<PLANE>& p2 = _keyframes[frame2].planes;
+    RESULT_OF_MULTIPNP result = multiPnP( p1, p2, true, _keyframes[frame1].frame_index, _loop_closure_inliers );
+    Eigen::Isometry3d T = result.T;
+    if (T.matrix() == Eigen::Isometry3d::Identity().matrix()) //匹配不上
+        return false;
+    if ( result.norm > _loop_closure_error )
+        return false;
+    if (result.inliers < _loop_closure_inliers)
+        return false;
+    T = T.inverse();
+    EdgeSE3* edge = new EdgeSE3();
+    SparseOptimizer& opt = _pSLAMEnd->globalOptimizer;
+    edge->vertices() [0] = opt.vertex( _keyframes[frame1].id );
+    edge->vertices() [1] = opt.vertex( _keyframes[frame2].id );
+    Matrix<double, 6,6> information = Matrix<double, 6, 6>::Identity();
+    information(0, 0) = information(2,2) = 100; 
+    information(1,1) = 100;
+    information(3,3) = information(4,4) = information(5,5) = 100; 
+    edge->setInformation( information );
+    edge->setMeasurement( T );
+    edge->setRobustKernel( _pSLAMEnd->_robustKernel );
+    opt.addEdge( edge );
+    _moreLoops++;
+    return true;
+}
+
+vector<int> GraphicEnd::checknearby( int source, int target )
+{
+    cout<<RED<<"checking "<<source<<" and "<<target<<RESET<<endl;
+
+    vector<int> checked;
+    int index = target;
+    while( index>0 )
+    {
+        index--;
+        if (index == source)
+            continue;
+        bool s = check( source, index);
+        if (s == true)
+            checked.push_back( index );
+        else
+            break;
+    }
+    index = target;
+    while (index < (_keyframes.size()-1))
+    {
+        index++;
+         if (index == source)
+            continue;
+        bool s = check( source, index);
+        if (s == true)
+            checked.push_back( index );
+        else
+            break;
+    }
+    return checked;
 }

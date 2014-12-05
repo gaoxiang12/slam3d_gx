@@ -45,6 +45,7 @@ struct PLANE
     vector<Point3f> kp_pos;        // 3d position of keypoints
     Mat desp;                               // descriptor
     Mat image;                             // grayscale image with mask
+    Mat mask;
 };
 
 struct KEYFRAME //关键帧: 一个关键帧由它上面的若干个平面组成
@@ -52,6 +53,7 @@ struct KEYFRAME //关键帧: 一个关键帧由它上面的若干个平面组成
     int id;
     int frame_index;
     vector<PLANE> planes;
+    vector<int> connect; //检测到的闭环
 };
 
 struct RESULT_OF_MULTIPNP
@@ -89,18 +91,22 @@ class GraphicEnd
     virtual void saveFinalResult( string fileaddr );
     //internal
 
-    vector<PLANE> extractPlanes( PointCloud::Ptr cloud ); //从点云提取一组平面
-
     vector<PLANE> extractPlanesAndGenerateImage( PointCloud::Ptr cloud, Mat& rgb, Mat& dep ); //提取平面并成生灰度图像
     
-    void generateImageOnPlane( Mat rgb, vector<PLANE>& planes, Mat depth); //根据深度信息生成平面上的灰度图像
-
     //提取关键点
-    vector<KeyPoint> extractKeypoints(Mat image)        
+    vector<KeyPoint> extractKeypoints(Mat& image)        
     {
         vector<KeyPoint> kp;
-        //FAST( image, kp, 10 );
         _detector->detect(image, kp);
+        cout<<"Keypoints size = "<<kp.size()<<endl;
+        return kp;
+    }
+
+    vector<KeyPoint> extractKeypoints(Mat& image, Mat& mask)        
+    {
+        vector<KeyPoint> kp;
+        _detector->detect(image, kp, mask);
+        cout<<"Keypoints size = "<<kp.size()<<endl;
         return kp;
     }
 
@@ -128,9 +134,11 @@ class GraphicEnd
     virtual RESULT_OF_MULTIPNP multiPnP( vector<PLANE>& plane1, vector<PLANE>& plane2, bool loopclosure = false, int frame_index = 0, int minimum_inliers = 12);
 
     //闭环检测
-    void loopClosure();
-    void displayLC(int frame1, int frame2, double norm); //显示检测到的闭环
-
+l    void loopClosure();
+    void displayLC(int frame1, int frame2, double norm, int inliers); //显示检测到的闭环
+    void findMoreLoops();
+    bool check( int frame1, int frame2); //随机检测两个帧
+    vector<int> checknearby( int source, int target ); //检测target附近与source相连的帧
     //关键帧检测
     int testKeyframe();   //检测关键帧的质量
     // 丢失恢复
@@ -172,6 +180,7 @@ class GraphicEnd
     vector<KEYFRAME> _keyframes;      //过去的关键帧
     KEYFRAME _currKF;                              //当前的关键帧
     KEYFRAME _present;                            //当前帧，也就是正在处理的那一帧
+    KEYFRAME _last;                                   //正在处理那一帧的前一帧
     Mat _currRGB, _currDep, _lastRGB, _lastDep; //当前帧的灰度图/深度图与上一帧的灰度/深度图
     PointCloud::Ptr _currCloud, _lastCloud;   //当前帧与上一帧点云
 
@@ -197,10 +206,12 @@ class GraphicEnd
     double _loop_closure_error;
     int _lost_frames;
     stringstream ss;
-
-    vector<int> _seed; //Loop Closure 种子关键帧
+    double _ransac_accuracy;
+    double _z_filter;
+    int _loop_closure_inliers;
     bool _use_odometry;
     double _error_odometry;
+    int _moreLoops;
     vector<Eigen::Isometry3d> _odometry;
 };
 

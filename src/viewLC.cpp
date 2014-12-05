@@ -52,10 +52,12 @@ int main( int argc, char** argv )
         ss>>fileaddr;
         img2 = imread( fileaddr, 0);
         ss.clear();
+        int inliers;
+        fin>>inliers;
 
         imshow("lc1", img1);
         imshow("lc2", img2);
-        cout<<"norm = "<<norm<<endl;
+        cout<<"norm = "<<norm<<", inliers = "<<inliers<<endl;
         waitKey(0);
     }
 

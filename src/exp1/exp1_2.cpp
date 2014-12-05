@@ -1,6 +1,7 @@
 /* ****************************************
- * exp1.cpp -实验一的实现代码
+ * exp1_2.cpp 实验1的第二部分
  * xiang, Gao, 2014.9.14
+ * 不带图像显示，输入图像序号与指定特征，计算匹配误差
  *****************************************/
 
 #include "../const.h"
@@ -24,6 +25,7 @@
 #include <cstdio>
 #include <ctime>
 #include <algorithm>
+#include <cmath>
 
 //PCL
 #include <pcl/ModelCoefficients.h>
@@ -67,9 +69,20 @@ struct PLANE
     Mat image;                             // grayscale image with mask
     Mat mask;
 };
+/*
+struct timeval
+{
+    long tv_sec;
+    long tv_usec;
+};
 
-Eigen::Isometry3d Matching( char* featureName, char* despName);
-Eigen::Isometry3d MatchingPlanar( char* featureName, char* despName );
+struct timezone{
+    int tz_minuteswest;
+    int tz_dsttime; 
+};
+*/
+Eigen::Isometry3d Matching( char* featureName, char* despName, int& in);
+Eigen::Isometry3d MatchingPlanar( char* featureName, char* despName, int& in );
 
 //子函数
 //提取平面 
@@ -143,6 +156,20 @@ inline Eigen::Isometry3d conv2Odo( double data[7])
     return T;
     */
 }
+inline double max( double a, double b)
+{
+    return a>b?a:b;
+}
+inline double min( double a, double b)
+{
+    return a<b?a:b;
+}
+inline double errorAngle( Eigen::Isometry3d T)
+{
+    return acos( min(1, max(-1.0, double(
+                                 T.matrix()(0,0)+T.matrix()(1,1)+T.matrix()(2,2) -1.0)/2.0)));
+}
+
 void usage()
 {
     cout<<"usage: exp1 frame1 frame2 detector descriptor p/n"<<endl;
@@ -181,7 +208,7 @@ int main( int argc, char** argv )
 
     pcl::PassThrough<PointT> pass;
     pass.setFilterFieldName( "z" );
-    double maxZ = atof( g_pParaReader->GetPara("z_filter").c_str());
+    double maxZ = atof( g_pParaReader->GetPara("optimize_step").c_str());
     pass.setFilterLimits(0.0, maxZ);
     pcl::VoxelGrid<PointT> voxel;
     double grid = atof(g_pParaReader->GetPara("grid_leaf").c_str());
@@ -218,8 +245,6 @@ int main( int argc, char** argv )
     Eigen::Isometry3d T1 = traj[ atoi(argv[1]) - 1];
     Eigen::Isometry3d T2 = traj[ atoi(argv[2]) - 1];
 
-    Eigen::Vector3d rpy;
-    
     /* 测试欧拉角的转换是否正确
     Eigen::Isometry3d Ttest;
     Eigen::AngleAxisd r0_t(rpy[0], Eigen::Vector3d::UnitZ()),
@@ -240,55 +265,45 @@ int main( int argc, char** argv )
     */
     fin.close();
     
-    cout<<"T1 = "<<endl<<T1.matrix()<<endl;
-    cout<<"T2 = "<<endl<<T2.matrix()<<endl;
     Eigen::Isometry3d Tr = T1.inverse()*T2;
-
-    cout<<"groundtruth = "<<endl;
-    cout<<Tr.matrix()<<endl;
-    cout<<"Load ok."<<endl;
+    Eigen::Vector3d transTR( Tr.matrix()(0,3), Tr.matrix()(1,3), Tr.matrix()(2,3)); 
     //用指定特征进行匹配
-    Eigen::Isometry3d Tp = MatchingPlanar( argv[3], argv[4] );
-    Eigen::Isometry3d T = Matching( argv[3], argv[4] );
-
+    Eigen::Isometry3d T;
+    int inliers = 0;
+    if (string(argv[5]) == string("n"))
+        T = Matching( argv[3], argv[4], inliers );
+    else if (string (argv[5]) == string("p"))
+        T = MatchingPlanar( argv[3], argv[4], inliers );
+    else
+    {
+        return -1;
+    }
     //分析误差
     delete g_pParaReader;
-
-    cout<<"ordinary match: "<<endl<<(T).matrix()<<endl;
-    cout<<"planar match: "<<endl<<(Tp).matrix()<<endl;
     cout<<"Tr = "<<endl<<Tr.matrix()<<endl;
-    
+    cout<<"T="<<endl<<T.matrix()<<endl;
     Eigen::Isometry3d Terror1 = Tr.inverse()*T;
-    Eigen::Isometry3d Terror2 = Tr.inverse()*Tp;
-    Eigen::Vector3d trans( Terror1.matrix()(0,3), Terror1.matrix()(1,3), Terror1.matrix()(2,3));
-    cout<<"Error of normal match: "<<trans.norm()<<endl;
-
-    Eigen::Vector3d trans2( Terror2.matrix()(0,3), Terror2.matrix()(1,3), Terror2.matrix()(2,3));
-    cout<<"Error of planar match: "<<trans2.norm()<<endl;
-
+    //平移误差
+    Eigen::Vector3d trans( Terror1.matrix()(0,3), Terror1.matrix()(1,3), Terror1.matrix()(2,3)); 
+    //转角误差
+    double error_angle = errorAngle( Terror1 );
+    cout<<"error: "<<trans.norm()<<", "<<error_angle<<endl;
     //记录误差
     ofstream fout("./data/exp1/error.log", ofstream::app);
-    fout<<argv[1]<<" "<<argv[2]<<" "<<trans.norm()<<" "<<trans2.norm()<<endl;
+    fout<<argv[1]<<" "<<argv[2]<<" "<<transTR.norm()<<" "<<errorAngle(Tr)<<" "
+        <<trans.norm()<<" "<<error_angle<<" "<<inliers<<endl;
     fout.close();
     return 0;
 }
 
-Eigen::Isometry3d Matching( char* featureName, char* despName)
+Eigen::Isometry3d Matching( char* featureName, char* despName, int& in)
 {
-    cout<<"Matching using "<<featureName<<endl;
     Eigen::Isometry3d T = Eigen::Isometry3d::Identity();
     Ptr<FeatureDetector> detector = FeatureDetector::create(featureName);
-    if (detector.empty())
-    {
-        cerr<<"fail to create detector"<<endl;
-        return T;
-    }
 
     vector<KeyPoint> kp1, kp2;
     detector->detect( rgb_1, kp1);
     detector->detect( rgb_2, kp2);
-
-    cout<<"kp1 size="<<kp1.size()<<", kp2 size = "<<kp2.size()<<endl;
 
     Mat des1, des2;
     Ptr<DescriptorExtractor> descriptor_extractor = DescriptorExtractor::create(despName);
@@ -320,8 +335,6 @@ Eigen::Isometry3d Matching( char* featureName, char* despName)
         }
     }
     
-    //vector<DMatch> good_matches = matches;
-    cout<<"good matches: "<<good_matches.size()<<endl;
     
     vector<Point3f> obj;
     vector<Point2f> img;
@@ -359,16 +372,7 @@ Eigen::Isometry3d Matching( char* featureName, char* despName)
         inlierMatches.push_back( match_f[inliers.at<int>(i,0)] );
    
 
-    cout<<"inlier: "<<inliers.rows<<endl;
-    ofstream fout("data/exp1/normal_kp.txt");
-    for (size_t i=0; i<inlierMatches.size(); i++)
-    {
-        KeyPoint k = kp1[ inlierMatches[i].queryIdx ];
-        fout<<k.pt.x<<" "<<k.pt.y<<" ";
-        ushort d = dep_1.at<unsigned short>( round(k.pt.x), round(k.pt.y));
-        fout<<d<<endl;
-    }
-    fout.close();
+    in = inliers.rows;
     //Eigen::Isometry3d T = Isometry3d::Identity();
 
     // 旋转向量转换成旋转矩阵
@@ -383,39 +387,55 @@ Eigen::Isometry3d Matching( char* featureName, char* despName)
     T(0,3) = tvec.at<double> (0,0); T(1,3) = tvec.at<double>(0,1); T(2,3) = tvec.at<double>(0,2);
     
     //提取inliers作图
-    Mat image_matches;
-    drawMatches( rgb_1, kp1, rgb_2, kp2, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
-    imshow("match", image_matches);
-    waitKey(0);
     return T.inverse();
 }
 
-Eigen::Isometry3d MatchingPlanar( char* featureName, char* despName )
+Eigen::Isometry3d MatchingPlanar( char* featureName, char* despName, int& in )
 {
     //Step 1 提取平面
     cout<<RED"Planar matching"<<RESET<<endl;
+    ofstream fout("./data/time.log", ofstream::app);
+    timeval t1, t2;
+    double timeuse = 0.;
+    gettimeofday( &t1, 0 );
     vector<PLANE> p1 = extractplanes( cloud_1, rgb_1, dep_1 );
+    gettimeofday( &t2, 0 );
+    timeuse = t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec)/1000000.0;
+    timeuse /= p1.size();
+    cout<<"extracting planes time : "<<timeuse<<endl;
+    fout<<"ExtractPlane "<<timeuse<<endl;
+    
     vector<PLANE> p2 = extractplanes( cloud_2, rgb_2, dep_2 );
 
     for (size_t i=0; i<p1.size(); i++)
     {
-        //p1[i].kp = extractKeypoints( p1[i].image, featureName, p1[i] );
+        gettimeofday(&t1, 0);
         p1[i].kp = extractKeypoints( p1[i].image, featureName, p1[i] );
-        cout<<"kp size = "<<p1[i].kp.size()<<endl;
+        gettimeofday( &t2, 0 );
+        timeuse = t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec)/1000000.0;
+        fout<<"DetectKeypoints  "<<timeuse<<endl;
+
+        gettimeofday(&t1, 0);
         p1[i].desp = extractDescriptor( rgb_1, p1[i].kp, despName );
+        gettimeofday( &t2, 0 );
+        timeuse = t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec)/1000000.0;
+        fout<<"Descriptor  "<<timeuse<<endl;
+
+        gettimeofday(&t1, 0);
         compute3dPosition( p1[i], dep_1);
+        gettimeofday( &t2, 0 );
+        timeuse = t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec)/1000000.0;
+        fout<<"Compute3dPosition "<<timeuse<<endl;
     }
 
     for (size_t i=0; i<p2.size(); i++)
     {
         p2[i].kp = extractKeypoints( p2[i].image, featureName, p2[i] );
-        cout<<"kp size = "<<p2[i].kp.size()<<endl;
         p2[i].desp = extractDescriptor( rgb_2, p2[i].kp, despName );
         compute3dPosition( p2[i], dep_2);
     }
 
     vector<DMatch> matches = match( p1, p2 );
-    cout<<"matches of two planes: "<<matches.size()<<endl;
 
     vector<Point3f> obj; 
     vector<Point2f> img;
@@ -438,24 +458,21 @@ Eigen::Isometry3d MatchingPlanar( char* featureName, char* despName )
         }
     }
 
-    if (obj.empty())
-    {
-        cout<<"object is empty"<<endl;
-        return Eigen::Isometry3d::Identity();
-    }
-    
     double camera_matrix[3][3] = { { camera_fx, 0, camera_cx }, { 0, camera_fy ,camera_cy }, { 0, 0, 1 }};
     Mat cameraMatrix(3,3,CV_64F, camera_matrix);
     Mat rvec, tvec; 
     Mat inliers;
     double ransac_accuracy = atof( g_pParaReader->GetPara("ransac_accuracy").c_str());
+    gettimeofday(&t1, 0);
     solvePnPRansac(obj, img, cameraMatrix, Mat(), rvec, tvec, false, 100, ransac_accuracy, 100, inliers);
-
+    gettimeofday( &t2, 0 );
+    timeuse = t2.tv_sec - t1.tv_sec + (t2.tv_usec - t1.tv_usec)/1000000.0;
+    fout<<"RANSAC "<<timeuse<<endl;
+    
     vector<DMatch> inlierMatches;
     for (int i=0; i<inliers.rows; i++)
         inlierMatches.push_back( match_show[inliers.at<int>(i,0)] );
 
-    cout<<rvec<<endl<<tvec<<endl;
     //再算一遍
     vector<Point3f> obj_new;
     vector<Point2f> img_new;
@@ -467,14 +484,7 @@ Eigen::Isometry3d MatchingPlanar( char* featureName, char* despName )
     Mat inliers_new;
     solvePnPRansac(obj_new, img_new, cameraMatrix, Mat(), rvec, tvec, true, 100, 3.0, 100, inliers_new);
     
-    cout<<"multiICP::inliers = "<<inliers.rows<<endl;
-    cout<<"new inliers = "<<inliers_new.rows<<endl;
-    Mat image_matches;
-    drawMatches( rgb_1, kp1, rgb_2, kp2, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
-    imshow("match planar", image_matches);
-    waitKey( 0 );
-    
-    cout<<"rvec = "<<rvec<<endl<<"tvec = "<<tvec<<endl;
+    in = inliers_new.rows;
     Eigen::Isometry3d T = Isometry3d::Identity();
     // 旋转向量转换成旋转矩阵
     Mat R;
@@ -486,13 +496,13 @@ Eigen::Isometry3d MatchingPlanar( char* featureName, char* despName )
     Eigen::Translation<double,3> trans(tvec.at<double>(0,0), tvec.at<double>(0,1), tvec.at<double>(0,2));
     T = angle;
     T(0,3) = tvec.at<double> (0,0); T(1,3) = tvec.at<double>(0,1); T(2,3) = tvec.at<double>(0,2);
+    fout.close();
     
     return T.inverse();
 }
 
 vector<PLANE> extractplanes( PointCloud::Ptr cloud, Mat& rgb, Mat& dep )
 {
-    cout<<"extracting planes"<<endl;
     vector<PLANE> planes;
     pcl::ModelCoefficients::Ptr coefficients( new pcl::ModelCoefficients() );
     pcl::PointIndices::Ptr inliers(new pcl::PointIndices ); 
@@ -504,7 +514,6 @@ vector<PLANE> extractplanes( PointCloud::Ptr cloud, Mat& rgb, Mat& dep )
     seg.setDistanceThreshold( atof(g_pParaReader->GetPara("distance_threshold").c_str() ));
 
     int n = cloud->points.size();
-    cout<<"pcd size = "<<n<<endl;
     int i=0;
 
     PointCloud::Ptr tmp (new PointCloud()); //储存剩下的数据
@@ -529,7 +538,6 @@ vector<PLANE> extractplanes( PointCloud::Ptr cloud, Mat& rgb, Mat& dep )
                 p.coff.values[i] = -p.coff.values[i];
         }
         
-        cout<<"Coff: "<<p.coff.values[0]<<","<<p.coff.values[1]<<","<<p.coff.values[2]<<","<<p.coff.values[3]<<endl;
         pcl::ExtractIndices<PointT> extract;
         PointCloud::Ptr plane_cloud( new PointCloud());
 
@@ -540,13 +548,12 @@ vector<PLANE> extractplanes( PointCloud::Ptr cloud, Mat& rgb, Mat& dep )
         p.image = Mat( 480, 640, CV_8UC1, Scalar::all(0));
         p.mask = Mat( 480, 640, CV_8UC1, Scalar::all(0));
 
-        cout<<"plane "<<i<<" inlier size = "<<plane_cloud->points.size()<<endl;
         int block = 4;
         for (size_t j=0; j<plane_cloud->points.size(); j++)
         {
             //生成该平面对应的图像
             PointT pt = plane_cloud->points[j];
-            block = int(-1.0*(pt.z)+10.0);
+            block = int(-1.2*(pt.z)+10.0);
             block = block>0?block:0;
             int u = round( pt.x*camera_fx/pt.z + camera_cx );
             int v = round( pt.y*camera_fy/pt.z + camera_cy );
@@ -562,9 +569,6 @@ vector<PLANE> extractplanes( PointCloud::Ptr cloud, Mat& rgb, Mat& dep )
         }
 
         equalizeHist( p.image, p.image);
-        //imshow( "image from pointcloud", p.image);
-        //waitKey(0);
-        
         extract.setNegative( true );
         extract.filter( *tmp ); //把没有被选中的点滤出
         i++;
@@ -574,12 +578,6 @@ vector<PLANE> extractplanes( PointCloud::Ptr cloud, Mat& rgb, Mat& dep )
             break;
     }
 
-    cout<<"Total planes: "<<i<<endl;
-    for (size_t i=0; i<planes.size(); i++)
-    {
-        imshow("plane", planes[i].image);
-        waitKey(0);
-    }
     return planes;
 }
 
@@ -608,7 +606,6 @@ Eigen::Isometry3d planarPnP( vector<PLANE>& plane1, vector<PLANE>& plane2 )
 
     if (obj.empty())
     {
-        cout<<"object is empty"<<endl;
         return result;
     }
     
@@ -622,12 +619,6 @@ Eigen::Isometry3d planarPnP( vector<PLANE>& plane1, vector<PLANE>& plane2 )
     for (int i=0; i<inliers.rows; i++)
         inlierMatches.push_back( match_show[inliers.at<int>(i,0)] );
     
-    cout<<"multiICP::inliers = "<<inliers.rows<<endl;
-    cout<<"matches: "<<match_show.size()<<endl;
-    Mat image_matches;
-    drawMatches( rgb_1, kp1,  rgb_2, kp2, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
-    imshow("match_planar", image_matches);
-    waitKey( 0 );
     
     Eigen::Isometry3d T = Isometry3d::Identity();
 
@@ -637,7 +628,6 @@ Eigen::Isometry3d planarPnP( vector<PLANE>& plane1, vector<PLANE>& plane2 )
     Eigen:Matrix3d r;
     cv2eigen(R, r);
 
-    cout<<"tvec = "<<tvec<<endl;
     Eigen::AngleAxisd angle(r);
     Eigen::Translation<double,3> trans(tvec.at<double>(0,0), tvec.at<double>(0,1), tvec.at<double>(0,2));
     T = angle;
@@ -660,7 +650,6 @@ vector<DMatch> pnp( PLANE& p1, PLANE& p2)
         obj.push_back( p1.kp_pos[matches[i].queryIdx] );
         img.push_back( p2.kp[matches[i].trainIdx].pt );
     }
-    cout<<"camera fx = "<<camera_fx<<endl;
     double camera_matrix[3][3] = { { camera_fx, 0, camera_cx }, { 0, camera_fy ,camera_cy }, { 0, 0, 1 }};
     Mat cameraMatrix(3,3,CV_64F, camera_matrix);
 
@@ -668,19 +657,10 @@ vector<DMatch> pnp( PLANE& p1, PLANE& p2)
     Mat inliers;
     solvePnPRansac(obj, img, cameraMatrix, Mat(), rvec, tvec, false, 100, 8.0, 100, inliers);
 
-    cout<<"matches: "<<matches.size()<<", inliers: "<<inliers.rows<<endl;
     vector<DMatch> inlierMatches;
     for (int i=0; i<inliers.rows; i++)
         inlierMatches.push_back( matches[inliers.at<int>(i,0)] );
 
-    Mat image_matches;
-    drawMatches( p1.image, p1.kp,  p2.image, p2.kp, matches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
-    imshow("match of each plane", image_matches);
-    waitKey( 0 );
-    
-    drawMatches( p1.image, p1.kp,  p2.image, p2.kp, inlierMatches, image_matches, Scalar::all(-1), CV_RGB(255,255,255), Mat(), 4);
-    imshow("inlier match of each plane", image_matches);
-    waitKey( 0 );
     return inlierMatches;
 }
 
@@ -705,7 +685,6 @@ vector<DMatch> match( vector<PLANE>& p1, vector<PLANE>& p2 )
         mat.row(0).copyTo( des2.row(i) );
     }
     matcher.match( des1, des2, matches);
-    cout<<"Planes matches: "<<matches.size()<<endl;
     return matches;
 }
 
@@ -734,7 +713,5 @@ vector<DMatch> match( Mat desp1, Mat desp2 )
         }
     }
 
-    cout<<"matches: "<<matches.size()<<", good: "<<good_matches.size()<<endl;
-    //return matches;
     return good_matches;
 }

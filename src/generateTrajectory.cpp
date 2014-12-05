@@ -36,23 +36,36 @@ int main(int argc, char** argv)
     }
 
     string fileaddr;
-    //ifstream asso( string(g_pParaReader->GetPara("data_source")+string("/associate.txt")).c_str());
+    ifstream asso( string(g_pParaReader->GetPara("data_source")+string("/associate.txt")).c_str());
     stringstream ss;
     ofstream fout("trajectory.txt");
     string init_time;
     double init_data[7];
-
-    int jump = 0;
+    /*
+    asso>>timestamp;
+    for (int i=0; i<7; i++)
+        asso>>init_data[i];
+    VertexSE3 v;
+    v.setEstimateData( data );
+    */
+    //    Eigen::Isometry3d Ti = v.estimate();
+    int jump = 1;
     while (!fin.eof())
     {
         int frame, id;
         fin>>id>>frame;
+        //将asso跳若干行
+        string timestamp;
+        for (int i=0; i<frame-jump; i++)
+            getline( asso, timestamp );
+        asso>>timestamp;
         //位置
         VertexSE3* pv = dynamic_cast<VertexSE3*> (opt.vertex( id) );
         if (pv == NULL)
             continue;
         double data[7];
         pv->getEstimateData( data );
+        fout<<timestamp<<" ";
         for (int i=0; i<7; i++)
             fout<<data[i]<<" ";
         fout<<endl;
@@ -62,7 +75,7 @@ int main(int argc, char** argv)
     cout<<"trajectory saved."<<endl;
     fout.close();
     fin.close();
-    //asso.close();
+    asso.close();
 
     delete g_pParaReader;
 }
