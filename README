@@ -1,7 +1,12 @@
 SLAM3d_gx
 Author: xiang gao
 
-Last update date: 8.29.2014
+Last update date: 3.24.2016
+Updates:
+This program is out-dated and I'm no longer maintaining it. If you are interested in RGB-D SLAM, please refer to the rgbd-slam-tutor in my repos:
+https://github.com/gaoxiang12/rgbd-slam-tutorial-gx 
+and the blog: http://www.cnblogs.com/gaoxiang12/
+
 
 Updates:
 
